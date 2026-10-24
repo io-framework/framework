@@ -1,0 +1,279 @@
+<?php
+
+namespace Io\Tests\Integration;
+
+use Io\App;
+use Io\Options\{CsrfOptions, RendererOptions, FileSystemOptions};
+use Io\Tests\Fixtures\Controllers\{CustomersController, OrdersController, ProductsController};
+
+final class RouterDispatchTest extends IntegrationTestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $app = App::create();
+        $app->configure(function (RendererOptions $opts) {
+            $opts->directory = __DIR__ . '/../Fixtures/Views';
+            $opts->layout = '_Layout.php';
+        });
+        $app->attach([
+            CustomersController::class,
+            OrdersController::class,
+            ProductsController::class,
+        ]);
+    }
+
+    public function testStaticRouteIsMatchedExactly(): void
+    {
+        $output = $this->dispatch('POST', '/orders');
+        $this->assertSame('"pong"', $output);
+    }
+
+    public function testDynamicRouteBindsPathPlaceholderToParamAttribute(): void
+    {
+        $output = $this->dispatch('GET', '/customers/1/orders');
+        $this->assertSame(['customerId' => '1', 'status' => null], json_decode($output, true));
+    }
+
+    public function testDynamicRouteAlsoBindsQueryAttribute(): void
+    {
+        $output = $this->dispatch('GET', '/customers/1/orders?status=open');
+        $this->assertSame(['customerId' => '1', 'status' => 'open'], json_decode($output, true));
+    }
+
+    public function testAnotherDynamicSegmentPattern(): void
+    {
+        $output = $this->dispatch('GET', '/orders/42');
+        $this->assertSame('"pong"', $output);
+    }
+
+    public function testUnknownRouteReturns404Json(): void
+    {
+        $output = $this->dispatch('GET', '/this/does/not/exist');
+        $this->assertSame(['error' => 'Not found'], json_decode($output, true));
+    }
+
+    public function testBodyBoundDtoIsPopulatedFromRequestBody(): void
+    {
+        $output = $this->dispatch('POST', '/products', body: ['name' => 'Widget', 'sku' => 'AB-12']);
+
+        $this->assertSame(['name' => 'Widget', 'sku' => 'AB-12'], json_decode($output, true));
+    }
+
+    public function testInvalidBodyIsRejectedWithValidationDetails(): void
+    {
+        $output = $this->dispatch('POST', '/products', body: ['name' => '', 'sku' => 'x']);
+        $decoded = json_decode($output, true);
+
+        $this->assertSame('Validation failed', $decoded['title']);
+        $this->assertArrayHasKey('name', $decoded['errors']);
+        $this->assertArrayHasKey('sku', $decoded['errors']);
+    }
+
+    public function testFileFormatterSetsDownloadHeadersAndRawBody(): void
+    {
+        $output = $this->dispatch('GET', '/products/report.txt');
+
+        $this->assertSame("sku,name\nA-1,Widget\n", $output);
+        $headers = $this->sentHeaders();
+        // PHP's default_charset ini setting appends ";charset=UTF-8" to any
+        // Content-Type header that doesn't already specify one. That's not
+        // something Io itself adds, so we only check the prefix.
+        $this->assertStringStartsWith('text/plain', $headers['content-type'] ?? '');
+        $this->assertSame('attachment; filename="report.txt"', $headers['content-disposition'] ?? null);
+    }
+
+    public function testFileFormatterReadsAnActualFilePathFromDisk(): void
+    {
+        $output = $this->dispatch('GET', '/products/logo.svg');
+
+        $this->assertSame("body { color: red; }\n", $output);
+        $this->assertStringStartsWith('image/svg+xml', $this->sentHeaders()['content-type'] ?? '');
+    }
+
+    public function testFileFormatterNeverReadsAFileNamedByAReturnedString(): void
+    {
+        $path = __DIR__ . '/../Fixtures/Public/style.css';
+
+        $output = $this->dispatch('GET', '/products/echo.txt?text=' . rawurlencode($path));
+
+        $this->assertSame($path, $output);
+        $this->assertSame('attachment; filename="download.bin"', $this->sentHeaders()['content-disposition'] ?? null);
+    }
+
+    public function testFileFormatterNamesADownloadAfterTheFileItSends(): void
+    {
+        $output = $this->dispatch('GET', '/products/named-download');
+
+        $this->assertSame("body { color: red; }\n", $output);
+        $this->assertSame('attachment; filename="style.css"', $this->sentHeaders()['content-disposition'] ?? null);
+    }
+
+    public function testHeadAnswersLikeGetWithoutTheBody(): void
+    {
+        $output = $this->dispatch('HEAD', '/products/report.txt');
+
+        $this->assertSame(200, $this->lastResponse?->status());
+        $this->assertSame('', $output);
+        $this->assertSame('attachment; filename="report.txt"', $this->sentHeaders()['content-disposition'] ?? null);
+    }
+
+    public function testAKnownPathWithTheWrongMethodIs405WithTheAllowedMethods(): void
+    {
+        $this->dispatch('DELETE', '/products/report.txt');
+        $this->assertSame(405, $this->lastResponse?->status());
+        $this->assertSame('GET, HEAD', $this->sentHeaders()['allow'] ?? null);
+
+        $this->dispatch('GET', '/products');
+        $this->assertSame(405, $this->lastResponse?->status());
+        $this->assertSame('POST', $this->sentHeaders()['allow'] ?? null);
+
+        $this->dispatch('DELETE', '/products/nothing-here');
+        $this->assertSame(404, $this->lastResponse?->status());
+    }
+
+    public function testXmlFormatterWrapsArrayInRootElement(): void
+    {
+        $output = $this->dispatch('GET', '/products/export.xml');
+
+        $this->assertStringContainsString('<root>', $output);
+        $this->assertStringContainsString('<name>Widget</name>', $output);
+        $this->assertStringContainsString('<sku>A-1</sku>', $output);
+    }
+
+    public function testViewRouteRendersFullPageByDefault(): void
+    {
+        $output = $this->dispatch('GET', '/customers');
+
+        $this->assertStringContainsString('<html', $output);
+        $this->assertStringContainsString('testview hit', $output);
+    }
+
+    public function testViewWithSiblingCssAndJsLinksBothFromThePage(): void
+    {
+        // HomePage.css/HomePage.js are real sibling fixture files (see
+        // Tests/Fixtures/Views/).
+        $output = $this->dispatch('GET', '/customers');
+
+        $this->assertNotNull(self::linkedViewAsset($output, 'css'));
+        $this->assertNotNull(self::linkedViewAsset($output, 'js'));
+    }
+
+    public function testViewAssetIsServedFromAssetsRouteWithLongLivedCacheHeaders(): void
+    {
+        $cssFilename = self::linkedViewAsset($this->dispatch('GET', '/customers'), 'css');
+
+        $output = $this->dispatch('GET', "/assets/$cssFilename");
+        $headers = $this->sentHeaders();
+
+        // Scoped by ViewAssets::compile(): wrapped in the view's own
+        // [data-view="HomePage"] nesting parent, not served raw.
+        $this->assertSame("[data-view=\"HomePage\"] {\n    .home-page {\n        color: navy;\n    }\n}\n", $output);
+        $this->assertStringStartsWith('text/css', $headers['content-type'] ?? '');
+        $this->assertSame('public, max-age=31536000, immutable', $headers['cache-control'] ?? null);
+    }
+
+    public function testJsViewAssetIsServedWithTheJavascriptMimeType(): void
+    {
+        $jsFilename = self::linkedViewAsset($this->dispatch('GET', '/customers'), 'js');
+
+        $output = $this->dispatch('GET', "/assets/$jsFilename");
+        $headers = $this->sentHeaders();
+
+        $this->assertSame("console.log('HomePage view script loaded');\n", $output);
+        $this->assertStringStartsWith('application/javascript', $headers['content-type'] ?? '');
+    }
+
+    public function testUnknownAssetFilenameFallsThroughToTheNormal404(): void
+    {
+        $output = $this->dispatch('GET', '/assets/does-not-exist.css');
+
+        $this->assertSame(['error' => 'Not found'], json_decode($output, true));
+    }
+
+    public function testAKnownAssetFilenameMissingFromDiskFallsThroughToTheNormal404(): void
+    {
+        // The compiled {filename => mime} manifest says this filename is
+        // legit, but the physical file under FileSystem::getAssetsDirectory()
+        // was removed from under it (e.g. a partially cleared cache
+        // directory) must 404 gracefully, not throw trying to read it.
+        // A dedicated cache dir, not the shared default the rest of this
+        // class's tests rely on; deleting a file out of that would leak
+        // into whichever other test happens to run next.
+        $tempDir = sys_get_temp_dir() . '/io-test-' . bin2hex(random_bytes(6));
+        try {
+            $app = App::create();
+            $app->configure(function (FileSystemOptions $fs) use ($tempDir) {
+                $fs->cacheDirectory = $tempDir;
+            });
+            $app->configure(function (RendererOptions $opts) {
+                $opts->directory = __DIR__ . '/../Fixtures/Views';
+                $opts->layout = '_Layout.php';
+            });
+            $app->attach([CustomersController::class]);
+
+            $cssFilename = self::linkedViewAsset($this->dispatch('GET', '/customers'), 'css');
+            unlink("$tempDir/assets/$cssFilename");
+
+            $output = $this->dispatch('GET', "/assets/$cssFilename");
+
+            $this->assertSame(['error' => 'Not found'], json_decode($output, true));
+        } finally {
+            $this->removeDirectory($tempDir);
+        }
+    }
+
+    public function testViewsIoJsTagPointsAtTheCompiledBundle(): void
+    {
+        $output = $this->dispatch('GET', '/customers');
+
+        $this->assertMatchesRegularExpression('#<script src="/assets/io\.[0-9a-f]{12}\.js"></script>#', $output);
+    }
+
+    public function testIoJsIsServedFromTheAssetsRouteWithImmutableCaching(): void
+    {
+        $page = $this->dispatch('GET', '/customers');
+        preg_match('#src="(/assets/io\.[0-9a-f]{12}\.js)"#', $page, $m);
+
+        $output = $this->dispatch('GET', $m[1]);
+
+        $this->assertSame(file_get_contents(dirname((new \ReflectionClass(App::class))->getFileName()) . '/UI/io.js'), $output);
+        $this->assertStringStartsWith('application/javascript', $this->sentHeaders()['content-type'] ?? '');
+        $this->assertSame('public, max-age=31536000, immutable', $this->sentHeaders()['cache-control'] ?? null);
+    }
+
+    public function testViewsIoJsTagCarriesNonDefaultCsrfNames(): void
+    {
+        $app = App::create();
+        $app->configure(function (RendererOptions $opts) {
+            $opts->directory = __DIR__ . '/../Fixtures/Views';
+            $opts->layout = '_Layout.php';
+        });
+        $app->configure(function (CsrfOptions $opts) {
+            $opts->cookieName = 'my_token';
+        });
+        $app->attach([CustomersController::class]);
+
+        $output = $this->dispatch('GET', '/customers');
+
+        // Only the value that differs from io.js's own default is spelled out.
+        $this->assertMatchesRegularExpression('#<script src="/assets/io\.[0-9a-f]{12}\.js" data-csrf-cookie="my_token"></script>#', $output);
+    }
+
+    private function removeDirectory(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        foreach (scandir($dir) as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $path = "$dir/$entry";
+            is_dir($path) ? $this->removeDirectory($path) : unlink($path);
+        }
+        rmdir($dir);
+    }
+
+}

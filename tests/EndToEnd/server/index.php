@@ -1,0 +1,75 @@
+<?php
+
+/**
+ * Real front controller for the end-to-end suite. Run standalone by PHP's
+ * built-in web server (php -S), not included by PHPUnit directly: every
+ * request re-executes this file from scratch, exactly like a real
+ * deployment (no shared state between requests), which is the whole point
+ * of testing against it instead of calling App::handleHttp() in-process.
+ */
+
+require __DIR__ . '/../../../vendor/autoload.php';
+
+use Io\App;
+use Io\Options\{JWTOptions, RendererOptions, FileSystemOptions, CorsOptions, OpenAPIOptions};
+use Io\Tests\Fixtures\Controllers\{
+    CustomersController,
+    OrdersController,
+    ProductsController,
+    GuardedController,
+    WhoAmIController,
+    MiddlewareController,
+    ArgBindingController,
+    UploadController,
+};
+use Io\Tests\Fixtures\Managers\MaintenanceManager;
+
+$app = App::create();
+
+$app->configure(function (FileSystemOptions $fs) {
+    $fs->publicDirectory = __DIR__ . '/../../Fixtures/Public';
+    $fs->cacheDirectory = sys_get_temp_dir() . '/e2e-cache';
+});
+
+$app->configure(function (JWTOptions $opts) {
+    $opts->secret = 'e2e-test-secret-long-enough-for-hmac';
+});
+$app->configure(function (RendererOptions $opts) {
+    $opts->directory = __DIR__ . '/../../Fixtures/Views';
+    $opts->layout = '_Layout.php';
+});
+
+$app->configure(function (OpenAPIOptions $opts) {
+    $opts->enabled = true;
+});
+
+$app->configure(function (CorsOptions $opts) {
+    $opts->allowOrigin = '*';
+    $opts->allowMethods = 'GET, POST, OPTIONS';
+});
+$app->useCors();
+$app->useJwt();
+
+// attach() takes the whole set at once; the tenma-only controller joins it under Tenma
+$app->attach([
+    ...(class_exists(\Http\Server::class, false) ? [\Io\Tests\Fixtures\Controllers\TenmaController::class] : []),
+    CustomersController::class,
+    OrdersController::class,
+    ProductsController::class,
+    GuardedController::class,
+    WhoAmIController::class,
+    MiddlewareController::class,
+    ArgBindingController::class,
+    UploadController::class,
+    MaintenanceManager::class,
+]);
+
+// Under Tenma (TenmaLiveTest) one process serves every request; under php -S each request runs this file anew.
+// TenmaPsrLiveTest goes the PSR-15 way instead: Tenma, tenma/psr, nyholm/psr7, Io\Psr\Handler.
+if (class_exists(\Http\Server::class, false) && getenv('E2E_PSR') === '1') {
+    $factory = new \Nyholm\Psr7\Factory\Psr17Factory();
+    new \Http\Server((int) $app->get(\Io\Environment::class)->get('PORT'), \Tenma\Psr\Psr::handler(new \Io\Psr\Handler($app, $factory), $factory))->start();
+} else {
+    // Under Tenma the server on PORT, under php -S this request
+    $app->serve();
+}

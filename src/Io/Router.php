@@ -1,0 +1,749 @@
+<?php
+
+namespace Io;
+
+use RuntimeException;
+use Io\Attributes\Inject;
+use Io\Enums\RouteType;
+use Io\Http\{PublicFileServer, Redirect, Request, Response, ResultRenderer, View};
+use Io\OpenAPI\OpenAPIEndpoint;
+use Io\Options\{CsrfOptions, FileSystemOptions, RendererOptions};
+use Io\Plugin\{ArgumentBinder, ClientAsset, Endpoint, Fallback, Guard, PluginRegistry, Renderer, ResponseHook, RouteAttributeCompiler};
+use Io\Routing\{ArgumentResolver, PropertyInjector, RouteGuard};
+use Io\Support\Arr;
+
+/**
+ * Matches a request against the compiled route plans (RouteCompiler, cached
+ * by FileSystem) and runs the matched controller method: access checks,
+ * per-route middleware, argument binding, and rendering of the result.
+ * Also serves compiled view assets and runs CLI tasks.
+ *
+ * Plans are plain string-keyed arrays: they are loaded from a `require`d
+ * cache file, so consumers read keys defensively (`?? default`) rather than
+ * trusting a shape, which also keeps a routes.php written by an older
+ * Io working until it is rebuilt.
+ */
+class Router
+{
+    /** @var array<string, array<string, array<string, mixed>>> httpMethod => path => plan */
+    public array $staticRoutes = [];
+
+    /** @var array<string, list<array<string, mixed>>> httpMethod => plans, matched by 'regex' in order */
+    public array $dynamicRoutes = [];
+
+    /** @var array<string, mixed> fullName => plan (mixed: tests deliberately plant malformed entries to prove executeTask() tolerates them) */
+    public array $tasks = [];
+
+    /** @var array<string, string> filename => mime; GET {assetsPath}/{filename} is a strict lookup here, never a path built from the request. */
+    private array $viewAssetFiles = [];
+
+    /** @var array<string, array{css: ?string, js: ?string}> */
+    private array $viewAssetsByName = [];
+
+    /** io.js's content-hashed filename under {assetsPath}/, compiled like any view asset; null only for a cache from an older Io. */
+    private ?string $ioJsFile = null;
+
+    /** @var list<string> Content-hashed filenames of plugin assets (Plugin\ClientAsset), in plugin order. */
+    private array $pluginAssetFiles = [];
+
+    /** @var array<string, string> filename => content, when there is no cache directory to keep compiled assets in. */
+    private array $viewAssetContents = [];
+
+    /** @var class-string[] The attached controllers, for the in-memory attribute export without a cache. */
+    private array $controllers;
+
+    private ?Container $container;
+    private FileSystemOptions $fileSystemOptions;
+    private FileSystem $fileSystem;
+    private ResultRenderer $resultRenderer;
+    private PublicFileServer $publicFileServer;
+    private PropertyInjector $injector;
+    private RouteGuard $guard;
+    private PluginRegistry $plugins;
+    private ArgumentResolver $arguments;
+
+    /** @var list<Fallback> Asked in registration order when no route matched. */
+    private array $fallbacks = [];
+
+    /** @var list<Endpoint> OpenAPI first, then plugin endpoints in registration order. */
+    private array $endpoints;
+
+    /** @var array<string, Guard> */
+    private array $guards;
+
+    /** @var array<string, ResponseHook> */
+    private array $responseHooks;
+
+    /** @var array<string, Renderer> */
+    private array $renderers;
+
+    /** @var array<string, callable> */
+    private array $viewHelpers;
+
+    /**
+     * @param class-string[] $controllers
+     * @param class-string[] $serviceClasses Persisted into the cache so trust mode can skip discovery.
+     * @param array<string, mixed>|null $preloadedCache Already-read routes.php data (App::attach() in trust mode), so it isn't `require`d twice.
+     * @param FileSystemOptions|null $fileSystemOptions Falls back to the container's, then to defaults (caching off).
+     * @param PluginRegistry|null $plugins The app's registered plugins (App::plugin()); none when built directly.
+     */
+    public function __construct(
+        array $controllers,
+        array $serviceClasses = [],
+        ?Container $container = null,
+        ?array $preloadedCache = null,
+        ?FileSystemOptions $fileSystemOptions = null,
+        ?PluginRegistry $plugins = null
+    ) {
+        $this->container = $container;
+        $this->controllers = $controllers;
+        $this->fileSystemOptions = $fileSystemOptions ?? $container?->get(FileSystemOptions::class) ?? new FileSystemOptions();
+        $this->fileSystem = new FileSystem($this->fileSystemOptions);
+        $this->resultRenderer = new ResultRenderer();
+        $this->publicFileServer = new PublicFileServer($this->fileSystemOptions);
+        $this->injector = new PropertyInjector($container, $this);
+        $this->guard = new RouteGuard($container);
+        $this->plugins = $plugins ?? new PluginRegistry();
+        $this->arguments = new ArgumentResolver($this->plugins->hooks(ArgumentBinder::class));
+        $this->endpoints = [
+            ...($container !== null ? [new OpenAPIEndpoint($this, $container)] : []),
+            ...array_values($this->plugins->hooks(Endpoint::class)),
+        ];
+        $this->guards = $this->plugins->hooks(Guard::class);
+        $this->fallbacks = array_values($this->plugins->hooks(Fallback::class));
+        $this->responseHooks = $this->plugins->hooks(ResponseHook::class);
+        $this->renderers = $this->plugins->hooks(Renderer::class);
+        $this->viewHelpers = $this->plugins->viewHelpers();
+
+        if ($preloadedCache !== null) {
+            $this->importPlans($preloadedCache);
+            return;
+        }
+
+        $viewsDir = $container?->get(RendererOptions::class)->directory;
+        if ($this->fileSystemOptions->isCacheEnabled()) {
+            // Trust mode: one stat call, no per-controller reflection.
+            if (!$this->fileSystemOptions->cacheValidate && $this->fileSystem->hasCachedRoutes()) {
+                $this->fileSystem->loadToRouter($this);
+                return;
+            }
+            $viewAssetMeta = ($viewsDir !== null ? ViewAssets::discoverMeta($viewsDir) : []) + $this->pluginMeta();
+            if ($this->fileSystem->isAvailable($controllers, $viewAssetMeta)) {
+                $this->fileSystem->loadToRouter($this);
+                return;
+            }
+        }
+
+        $this->compile($controllers, $serviceClasses, $viewsDir);
+    }
+
+    /**
+     * @param class-string[] $controllers
+     * @param class-string[] $serviceClasses
+     */
+    private function compile(array $controllers, array $serviceClasses, ?string $viewsDir): void
+    {
+        $compiler = new RouteCompiler($this->plugins->hooks(RouteAttributeCompiler::class), $this->plugins->hooks(ArgumentBinder::class));
+        $plans = $compiler->compile($controllers);
+        foreach ($plans['staticRoutes'] as $routes) {
+            foreach ($routes as $plan) {
+                $this->addCompiledRoute($plan, RouteType::Static);
+            }
+        }
+        foreach ($plans['dynamicRoutes'] as $routes) {
+            foreach ($routes as $plan) {
+                $this->addCompiledRoute($plan, RouteType::Dynamic);
+            }
+        }
+        foreach ($plans['tasks'] as $plan) {
+            $this->addCompiledRoute($plan, RouteType::Task);
+        }
+
+        $assets = $viewsDir !== null ? ViewAssets::compile($viewsDir) : ['views' => [], 'files' => [], 'meta' => []];
+        $this->viewAssetsByName = $assets['views'];
+
+        // The client bundle rides the same pipeline: content-hashed filename, served from the cache
+        // directory with immutable caching. FileSystem tracks its mtime, so a framework upgrade rebuilds.
+        $bundle = file_get_contents(ViewAssets::IO_JS);
+        if ($bundle !== false) {
+            $this->ioJsFile = 'io.' . substr(md5($bundle), 0, 12) . '.js';
+            $assets['files'][$this->ioJsFile] = ['content' => $bundle, 'mime' => 'application/javascript; charset=utf-8'];
+        }
+        // Plugin CSS/JS ride along the same way; their source mtimes are in pluginMeta().
+        $this->pluginAssetFiles = [];
+        foreach ($this->plugins->hooks(ClientAsset::class) as $name => $hook) {
+            foreach ($hook->assets() as $logical => $source) {
+                $content = file_get_contents($source);
+                if ($content === false) {
+                    continue;
+                }
+                $ext = str_ends_with($logical, '.css') ? 'css' : 'js';
+                $filename = "$name." . basename($logical, ".$ext") . '.' . substr(md5($content), 0, 12) . ".$ext";
+                $assets['files'][$filename] = ['content' => $content, 'mime' => $ext === 'css' ? 'text/css; charset=utf-8' : 'application/javascript; charset=utf-8'];
+                $this->pluginAssetFiles[] = $filename;
+            }
+        }
+        if (!$this->fileSystemOptions->isCacheEnabled()) {
+            // No cache directory: the compiled assets stay in memory, nothing touches the disk.
+            $this->viewAssetFiles = array_map(fn (array $asset): string => $asset['mime'], $assets['files']);
+            $this->viewAssetContents = array_map(fn (array $asset): string => $asset['content'], $assets['files']);
+            return;
+        }
+        $assets['meta'] += $this->pluginMeta();
+        // File contents go to disk; routes.php only keeps {filename => mime}.
+        $this->viewAssetFiles = $this->fileSystem->storeViewAssetFiles($assets['files']);
+        $this->fileSystem->storeFromRouter($this, $controllers, $serviceClasses, $assets['meta']);
+    }
+
+    /**
+     * Every attribute on every attached controller (RouteCompiler::exportAllAttributes()) for OpenAPIGenerator:
+     * from the cache's attributes.php when there is a cache, else exported live.
+     * @return array<class-string, mixed>
+     */
+    public function compiledAttributes(): array
+    {
+        return $this->fileSystemOptions->isCacheEnabled() ? $this->fileSystem->loadAttributes() : RouteCompiler::exportAllAttributes($this->controllers);
+    }
+
+    /**
+     * Plugin cache inputs plus the source mtime of every plugin asset, plugin and hook class; editing either rebuilds
+     * the cache.
+     * @return array<string, int>
+     */
+    private function pluginMeta(): array
+    {
+        $meta = $this->plugins->cacheInputs();
+        // The plans hold what the registered plugins compiled: adding, removing or updating one changes them. By class,
+        // not file: a plugin declared in a controller's file is a change as well.
+        foreach ($this->plugins->all() as $plugin) {
+            foreach ([$plugin, ...$plugin->hooks()] as $object) {
+                $file = (new \ReflectionClass($object))->getFileName();
+                $meta[$object::class] = $file !== false ? (filemtime($file) ?: 0) : 0;
+            }
+        }
+        foreach ($this->plugins->hooks(ClientAsset::class) as $hook) {
+            foreach ($hook->assets() as $source) {
+                $meta[$source] = filemtime($source) ?: 0;
+            }
+        }
+        return $meta;
+    }
+
+    // Plans
+
+    /** @param RoutePlan|TaskPlan $plan */
+    public function addCompiledRoute(array $plan, RouteType $type): void
+    {
+        if ($type === RouteType::Task) {
+            if (!isset($plan['fullName'])) {
+                // @codeCoverageIgnoreStart
+                // RouteCompiler always sets it; this also narrows $plan to TaskPlan.
+                throw new RuntimeException("addCompiledRoute(): a Task plan requires a 'fullName' key.");
+                // @codeCoverageIgnoreEnd
+            }
+            $this->tasks[$plan['fullName']] = $plan;
+            return;
+        }
+        if (!isset($plan['httpMethod'])) {
+            // @codeCoverageIgnoreStart
+            // same narrowing trick, to RoutePlan.
+            throw new RuntimeException("addCompiledRoute(): a route plan requires an 'httpMethod' key.");
+            // @codeCoverageIgnoreEnd
+        }
+        if ($type === RouteType::Dynamic) {
+            $this->dynamicRoutes[$plan['httpMethod']][] = $plan;
+        } else {
+            $this->staticRoutes[$plan['httpMethod']][$plan['path']] = $plan;
+        }
+    }
+
+    /**
+     * @return array{
+     *     staticRoutes: array<string, array<string, array<string, mixed>>>,
+     *     dynamicRoutes: array<string, list<array<string, mixed>>>,
+     *     tasks: array<string, mixed>,
+     *     viewAssetFiles: array<string, string>,
+     *     viewAssetsByName: array<string, array{css: ?string, js: ?string}>,
+     *     ioJsFile: ?string,
+     *     pluginAssetFiles: list<string>
+     * }
+     */
+    public function exportPlans(): array
+    {
+        return [
+            'staticRoutes' => $this->staticRoutes,
+            'dynamicRoutes' => $this->dynamicRoutes,
+            'tasks' => $this->tasks,
+            'viewAssetFiles' => $this->viewAssetFiles,
+            'viewAssetsByName' => $this->viewAssetsByName,
+            'ioJsFile' => $this->ioJsFile,
+            'pluginAssetFiles' => $this->pluginAssetFiles,
+        ];
+    }
+
+    /**
+     * Loads exportPlans()' shape back from a `require`d cache file, narrowing every level and dropping anything malformed.
+     * @param array<string, mixed> $data
+     */
+    public function importPlans(array $data): void
+    {
+        $this->staticRoutes = [];
+        foreach (Arr::stringKeyed($data['staticRoutes'] ?? null) as $method => $byPath) {
+            foreach (Arr::stringKeyed($byPath) as $path => $plan) {
+                if (is_array($plan)) {
+                    $this->staticRoutes[$method][$path] = Arr::stringKeyed($plan);
+                }
+            }
+        }
+        $this->dynamicRoutes = [];
+        foreach (Arr::stringKeyed($data['dynamicRoutes'] ?? null) as $method => $plans) {
+            $this->dynamicRoutes[$method] = Arr::listOfStringKeyed($plans);
+        }
+        $this->tasks = Arr::stringKeyed($data['tasks'] ?? null);
+        $this->viewAssetFiles = Arr::stringMap($data['viewAssetFiles'] ?? null);
+        $ioJsFile = $data['ioJsFile'] ?? null;
+        $this->ioJsFile = is_string($ioJsFile) ? $ioJsFile : null;
+        $this->pluginAssetFiles = Arr::stringList($data['pluginAssetFiles'] ?? null);
+        $this->viewAssetsByName = [];
+        foreach (Arr::stringKeyed($data['viewAssetsByName'] ?? null) as $name => $entry) {
+            $entry = Arr::stringKeyed($entry);
+            $css = $entry['css'] ?? null;
+            $js = $entry['js'] ?? null;
+            $this->viewAssetsByName[$name] = ['css' => is_string($css) ? $css : null, 'js' => is_string($js) ? $js : null];
+        }
+    }
+
+    // HTTP dispatch
+
+    /** @param string $path Request::$path: trimmed and decoded already */
+    public function dispatch(string $path, string $httpMethod, Request $req, Response $res): void
+    {
+        $method = strtoupper($httpMethod);
+        // Files are only read, as Tenma's own static server does: a POST to /style.css goes to routing
+        if (in_array($method, ['GET', 'HEAD'], true) && ($this->publicFileServer->serve($path, $res, $req) || $this->tryServeViewAsset($path, $res))) {
+            return;
+        }
+        foreach ($this->endpoints as $endpoint) {
+            if ($endpoint->serve($method, $path, $req, $res)) {
+                return;
+            }
+        }
+
+        [$route, $params] = $this->matchRoute($httpMethod, $path);
+        if ($route === null && $method === 'HEAD') {
+            // HEAD is GET without the body (Response::send() leaves it out)
+            [$route, $params] = $this->matchRoute('GET', $path);
+        }
+        if ($req->pathEncoded) {
+            // Decoded only now, so an encoded slash stays inside its own segment
+            $params = array_map(rawurldecode(...), $params);
+        }
+        if ($route === null) {
+            $allowed = $this->allowedMethods($path);
+            if ($allowed !== []) {
+                $res->status(405)->withHeader('Allow', implode(', ', $allowed))
+                    ->withHeader('Content-Type', 'application/json')->write('{"error":"Method not allowed"}');
+                return;
+            }
+            foreach ($this->fallbacks as $fallback) {
+                if ($fallback->serve($method, $path, $req, $res)) {
+                    foreach ($this->responseHooks as $hook) {
+                        $hook->after([], $req, $res);
+                    }
+                    return;
+                }
+            }
+            $this->respondNotFound($res);
+            return;
+        }
+
+        $this->applyRouteHeaders($route, $res);
+        $this->guard->check($route, $httpMethod, $req);
+        $pluginData = Arr::stringKeyed($route['plugins'] ?? null);
+        foreach ($this->guards as $name => $guard) {
+            $guard->check(Arr::stringKeyed($pluginData[$name] ?? null), $req, $res);
+        }
+
+        $controllerRef = $route['controller'] ?? null;
+        if (!is_string($controllerRef) || !class_exists($controllerRef)) {
+            // @codeCoverageIgnoreStart
+            // only a hand-corrupted cache.
+            $this->respondNotFound($res);
+            return;
+            // @codeCoverageIgnoreEnd
+        }
+        $controller = $this->perRequest($controllerRef);
+        $this->injector->injectPlanned($controller, $route['propInject'] ?? null, $req, $res);
+
+        $this->buildRouteHandler($route, $controller, $params)($req, $res);
+
+        foreach ($this->responseHooks as $name => $hook) {
+            $hook->after(Arr::stringKeyed($pluginData[$name] ?? null), $req, $res);
+        }
+    }
+
+    /**
+     * Headers decided at compile time: #[NoGzip], #[\Deprecated], #[Sunset]. Missing keys (older cache) mean "not set".
+     * @param array<string, mixed> $route
+     */
+    private function applyRouteHeaders(array $route, Response $res): void
+    {
+        if (!($route['gzip'] ?? true)) {
+            $res->disableGzip();
+        }
+        if ($route['deprecated'] ?? false) {
+            $res->withHeader('Deprecation', 'true');
+        }
+        $sunset = $route['sunsetHeader'] ?? null;
+        if (is_string($sunset) && $sunset !== '') {
+            $res->withHeader('Sunset', $sunset);
+        }
+    }
+
+    /**
+     * Wraps "bind args -> call -> render" in the route's #[Middleware] chain
+     * (class-level first, as compiled). Exceptions propagate to App's handlers.
+     *
+     * @param array<string, mixed> $route
+     * @param array<string, string> $params
+     */
+    private function buildRouteHandler(array $route, object $controller, array $params): callable
+    {
+        $final = function (Request $req, Response $res) use ($route, $controller, $params): void {
+            $method = $route['method'] ?? null;
+            if (!is_string($method)) {
+                // @codeCoverageIgnoreStart
+                // only a hand-corrupted cache.
+                throw new RuntimeException('buildRouteHandler(): route plan is missing a string \'method\'.');
+                // @codeCoverageIgnoreEnd
+            }
+            $args = $this->arguments->resolve(Arr::listOfStringKeyed($route['argPlan'] ?? null), $req, $res, $params);
+            $result = $controller->{$method}(...$args);
+            // Missing in an older cache: rendered as before
+            if (!($route['void'] ?? false)) {
+                // array_key_exists, not ??: null is #[Layout(null)]; missing in an older cache means none set
+                $layout = array_key_exists('layout', $route) ? $route['layout'] : false;
+                $this->renderResult($result, $req, $res, $route['formatter'] ?? null, $layout);
+            }
+        };
+
+        return array_reduce(
+            array_reverse(Arr::listOfStringKeyed($route['middlewares'] ?? null)),
+            fn (callable $next, array $mw): callable => function (Request $req, Response $res) use ($mw, $next): mixed {
+                $class = $mw['class'] ?? null;
+                $method = $mw['method'] ?? null;
+                if (!is_string($class) || !class_exists($class) || !is_string($method)) {
+                    // @codeCoverageIgnoreStart
+                    // only a hand-corrupted cache.
+                    return $next($req, $res);
+                    // @codeCoverageIgnoreEnd
+                }
+                $middleware = $this->perRequest($class);
+                $this->injector->injectPlanned($middleware, $mw['propInject'] ?? null, $req, $res);
+                return $middleware->{$method}($req, $res, $next);
+            },
+            $final
+        );
+    }
+
+    /** @return array{0: array<string, mixed>|null, 1: array<string, string>} */
+    private function matchRoute(string $httpMethod, string $path): array
+    {
+        $m = strtoupper($httpMethod);
+        if (isset($this->staticRoutes[$m][$path])) {
+            return [$this->staticRoutes[$m][$path], []];
+        }
+        foreach ($this->dynamicRoutes[$m] ?? [] as $plan) {
+            $regex = $plan['regex'] ?? null;
+            if (is_string($regex) && preg_match($regex, $path, $matches)) {
+                $params = [];
+                foreach ($matches as $key => $value) {
+                    if (is_string($key)) {
+                        $params[$key] = $value;
+                    }
+                }
+                return [$plan, $params];
+            }
+        }
+        return [null, []];
+    }
+
+    /** Content-hashed view CSS/JS under {assetsPath}/, immutable-cacheable; unknown filenames fall through to routing. */
+    private function tryServeViewAsset(string $path, Response $res): bool
+    {
+        $prefix = $this->fileSystemOptions->assetsPath . '/';
+        if (!str_starts_with($path, $prefix)) {
+            return false;
+        }
+        $filename = substr($path, strlen($prefix));
+        $mime = $this->viewAssetFiles[$filename] ?? null;
+        $content = $mime === null ? null : ($this->viewAssetContents[$filename] ?? ($this->fileSystemOptions->isCacheEnabled() ? $this->fileSystem->readViewAssetFile($filename) : null));
+        if ($mime === null || $content === null) {
+            return false;
+        }
+        $res->withHeader('Content-Type', $mime)
+            ->withHeader('Cache-Control', 'public, max-age=31536000, immutable')
+            ->withHeader('Content-Length', (string) strlen($content))
+            ->write($content);
+        return true;
+    }
+
+    /**
+     * The methods some route answers on $path; HEAD wherever GET is.
+     * @return list<string>
+     */
+    private function allowedMethods(string $path): array
+    {
+        $allowed = [];
+        foreach (array_unique([...array_keys($this->staticRoutes), ...array_keys($this->dynamicRoutes)]) as $method) {
+            if ($this->matchRoute($method, $path)[0] !== null) {
+                $allowed[] = $method;
+            }
+        }
+        if (in_array('GET', $allowed, true) && !in_array('HEAD', $allowed, true)) {
+            $allowed[] = 'HEAD';
+        }
+        return $allowed;
+    }
+
+    private function respondNotFound(Response $res): void
+    {
+        $res->status(404)->withHeader('Content-Type', 'application/json')->write('{"error":"Not found"}');
+    }
+
+    /**
+     * A fresh controller or #[Middleware] instance for one request: #[Inject] Request/Response land on it, and
+     * on a long-lived worker running requests interleaved (in Fibers) a shared instance would hand one
+     * request's Request to another. An instance registered in the container (one with constructor
+     * arguments) is cloned, keeping what its constructor set up.
+     *
+     * @template T of object
+     * @param class-string<T> $class
+     * @return T
+     */
+    private function perRequest(string $class): object
+    {
+        if ($this->container === null) {
+            return new $class();
+        }
+        if ($this->container->isRegistered($class) || !$this->container->has($class)) {
+            // Not registered and not constructible: get() throws the container's ServiceNotFoundException
+            return clone $this->container->get($class);
+        }
+        return new $class();
+    }
+
+    /** @param class-string $class */
+    private function resolve(string $class): object
+    {
+        return $this->container !== null ? $this->container->get($class) : new $class();
+    }
+
+    // Results
+
+    /** A View renders here (it needs this Router's asset lookups and injection); a Redirect is just status + Location; anything else goes through ResultRenderer. */
+    private function renderResult(mixed $result, Request $req, Response $res, mixed $formatter, mixed $layout = false): void
+    {
+        if ($result instanceof View) {
+            // #[Layout] of the route, unless the View names its own
+            if ($layout === null || is_string($layout)) {
+                $result->useRouteLayout($layout);
+            }
+            // The form shown again for an invalid #[Body(validate: false)] DTO: the page, but no 200
+            if ($req->bodyDto !== null && $res->getStatus() === 200 && ArgumentResolver::errors($req->bodyDto) !== []) {
+                $res->status(422);
+            }
+            $this->renderView($result, $req, $res);
+            return;
+        }
+        if ($result instanceof Redirect) {
+            $res->status($result->status)->withHeader('Location', $result->location);
+            return;
+        }
+        foreach ($this->renderers as $renderer) {
+            if ($renderer->supports($result)) {
+                $renderer->render($result, $req, $res);
+                return;
+            }
+        }
+        $spec = Arr::stringKeyed($formatter);
+        $type = $spec['type'] ?? 'json';
+        $options = $spec['options'] ?? null;
+        $this->resultRenderer->render($result, $res, [
+            'type' => is_string($type) ? $type : 'json',
+            'options' => is_array($options) ? Arr::stringKeyed($options) : null,
+        ]);
+    }
+
+    private function renderView(View $view, Request $req, Response $res): void
+    {
+        // Same Csrf instance the view's #[Inject] receives below, so its token is already resolved.
+        $this->container?->get(Csrf::class)->issueFor($req, $res);
+
+        $this->injector->injectReflected($view);
+        $view->setRequest($req);
+        $view->setHelpers($this->viewHelpers);
+        $view->setAssetsPath($this->fileSystemOptions->assetsPath);
+        $view->setPluginAssetUrls(array_map(fn (string $file): string => "{$this->fileSystemOptions->assetsPath}/$file", $this->pluginAssetFiles));
+        $view->setIoJsPath(
+            $this->ioJsFile !== null ? "{$this->fileSystemOptions->assetsPath}/{$this->ioJsFile}" : null,
+            $this->ioJsAttributes()
+        );
+
+        // A view from a directory of its own (a plugin's) has no compiled assets; a site view of the same name must not lend its own
+        if ($view->getDirectory() === null) {
+            $view->setAssets($this->getViewAssets($view->getViewName())); // the layout renders the tags
+        }
+        $res->withHeader('Content-Type', 'text/html; charset=utf-8')->write($view->render());
+    }
+
+    /**
+     * The data-* attributes io.js reads off its <script> tag: the CSRF cookie/header names,
+     * only when CsrfOptions was changed from the client's own defaults. The client must know them
+     * to mirror the cookie into the header on every fetch(), the one thing the server can't do for it.
+     *
+     * @return array<string, string>
+     */
+    private function ioJsAttributes(): array
+    {
+        if ($this->container === null) {
+            return [];
+        }
+        $csrf = $this->container->get(CsrfOptions::class);
+        $defaults = new CsrfOptions();
+        return array_filter([
+            'data-csrf-cookie' => $csrf->cookieName !== $defaults->cookieName ? $csrf->cookieName : null,
+            'data-csrf-header' => $csrf->headerName !== $defaults->headerName ? $csrf->headerName : null,
+        ], fn (?string $v): bool => $v !== null);
+    }
+
+    /**
+     * Compiled {css, js} filenames for a view or layout name (see ViewAssets::discoverViewNames()), or both null.
+     * @return array{css: ?string, js: ?string}
+     */
+    public function getViewAssets(string $name): array
+    {
+        return $this->viewAssetsByName[$name] ?? ['css' => null, 'js' => null];
+    }
+
+    // Listing (OpenAPI)
+
+    /**
+     * The registered plugins' hooks of one type (OpenAPIGenerator asks for OpenApiExtension).
+     * @template T of object
+     * @param class-string<T> $type
+     * @return array<string, T>
+     */
+    public function pluginHooks(string $type): array
+    {
+        return $this->plugins->hooks($type);
+    }
+
+    /**
+     * A flat summary of every route. 'version'/'unversionedPath' fall back to null/path for a
+     * plan predating #[Version], which is what an unversioned route looks like anyway.
+     * @return array<int, RouteSummary>
+     */
+    public function getRoutes(): array
+    {
+        $routes = [];
+        foreach ($this->staticRoutes as $method => $byPath) {
+            foreach ($byPath as $path => $plan) {
+                $routes[] = $this->toRouteSummary($method, $path, $plan);
+            }
+        }
+        foreach ($this->dynamicRoutes as $method => $plans) {
+            foreach ($plans as $plan) {
+                $path = $plan['path'] ?? null;
+                if (is_string($path)) {
+                    $routes[] = $this->toRouteSummary($method, $path, $plan);
+                }
+            }
+        }
+        return $routes;
+    }
+
+    /**
+     * @param array<string, mixed> $plan
+     * @return RouteSummary
+     */
+    private function toRouteSummary(string $method, string $rawPath, array $plan): object
+    {
+        $controller = $plan['controller'] ?? null;
+        $handler = $plan['method'] ?? null;
+        $version = $plan['version'] ?? null;
+        $unversionedPath = $plan['unversionedPath'] ?? null;
+        return (object) [
+            'method' => $method,
+            'rawPath' => $rawPath,
+            'handlerSpec' => [is_string($controller) || is_object($controller) ? $controller : '', is_string($handler) ? $handler : ''],
+            'version' => is_string($version) ? $version : null,
+            'unversionedPath' => is_string($unversionedPath) ? $unversionedPath : $rawPath,
+        ];
+    }
+
+    /** @param array<int, RouteSummary> $routes */
+    public function findRoute(array $routes, string $method, string $path): ?object
+    {
+        foreach ($routes as $route) {
+            if ($route->rawPath === $path && $route->method === $method) {
+                return $route;
+            }
+        }
+        return null;
+    }
+
+    // CLI tasks
+
+    /**
+     * Runs the task named $name: an exact "prefix:name" key, else the unique task whose name or
+     * ":name" suffix matches. The manager gets #[Inject] wiring (minus Request/Response) and is
+     * called as method($argv, $argc).
+     *
+     * @param string[] $argv
+     */
+    public function executeTask(string $name, array $argv = [], int $argc = 0): mixed
+    {
+        $plan = $this->tasks[$name] ?? $this->findTaskByShortName($name);
+        if (!is_array($plan)) {
+            throw new RuntimeException("Task '{$name}' not found.");
+        }
+        $plan = Arr::stringKeyed($plan);
+
+        $managerRef = $plan['manager'] ?? null;
+        if (!is_string($managerRef) || !class_exists($managerRef)) {
+            // @codeCoverageIgnoreStart
+            // only a hand-corrupted cache.
+            throw new RuntimeException("Task handler for '{$name}' is invalid.");
+            // @codeCoverageIgnoreEnd
+        }
+        $manager = $this->resolve($managerRef);
+        $this->injector->injectPlanned($manager, $plan['propInject'] ?? null);
+
+        $method = $plan['method'] ?? null;
+        if (!is_string($method) || !method_exists($manager, $method)) {
+            throw new RuntimeException("Task handler for '{$name}' is invalid.");
+        }
+        return $manager->{$method}($argv, $argc);
+    }
+
+    /** @return array<string, mixed>|null */
+    private function findTaskByShortName(string $name): ?array
+    {
+        $matches = [];
+        foreach ($this->tasks as $plan) {
+            if (!is_array($plan)) {
+                continue;
+            }
+            $plan = Arr::stringKeyed($plan);
+            $full = $plan['fullName'] ?? null;
+            if (($plan['name'] ?? null) === $name || (is_string($full) && ($full === $name || str_ends_with($full, ":$name")))) {
+                $matches[] = $plan;
+            }
+        }
+        if (count($matches) > 1) {
+            throw new RuntimeException("Ambiguous task name '{$name}'.");
+        }
+        return $matches[0] ?? null;
+    }
+}

@@ -1,0 +1,21 @@
+# #[Inject] properties count as written and initialized: the container fills them. #[Returns] and #[ListOf] name
+# an array's element type: PHPStan asks for no docblock with it, reads the attribute's type and checks what is
+# returned or assigned against it. Included automatically with phpstan/extension-installer, otherwise add
+# vendor/io/framework/extension.neon to "includes".
+services:
+    -
+        class: Io\PHPStan\InjectedProperties
+        tags:
+            - phpstan.properties.readWriteExtension
+    -
+        class: Io\PHPStan\AttributeTypes
+        tags:
+            - phpstan.ignoreErrorExtension
+    -
+        class: Io\PHPStan\AttributeTypeResolver
+        tags:
+            - phpstan.broker.expressionTypeResolverExtension
+    -
+        class: Io\PHPStan\AttributeTypeRule
+        tags:
+            - phpstan.rules.rule

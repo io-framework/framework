@@ -1,0 +1,70 @@
+<?php
+
+namespace Io\Tests\Integration;
+
+use Io\Testing\{TestCase, TestResponse};
+use Io\Tests\Fixtures\Support\CallTracker;
+
+/**
+ * The framework's own integration base: the shipped Io\Testing kit plus
+ * the fixtures' CallTracker reset. dispatch() is the older body-only helper the
+ * bulk of the suite still uses; new tests use the kit's request builder directly.
+ */
+abstract class IntegrationTestCase extends TestCase
+{
+    protected ?TestResponse $lastResponse = null;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        CallTracker::reset();
+    }
+
+    protected function tearDown(): void
+    {
+        parent::tearDown();
+        CallTracker::reset();
+    }
+
+    /**
+     * Runs one request and returns the body; headers/status are on $this->lastResponse and sentHeaders().
+     * @param array<string, string> $headers
+     * @param array<array-key, mixed> $body
+     */
+    protected function dispatch(string $method, string $uri, array $headers = [], array $body = []): string
+    {
+        $this->lastResponse = $this->request($method, $uri)->withHeaders($headers)->withBody($body)->send();
+        return $this->lastResponse->body();
+    }
+
+    /** The content-hashed file name of the view's own CSS or JS that a rendered page links, or null. */
+    protected static function linkedViewAsset(string $html, string $extension): ?string
+    {
+        return preg_match('#(?:href|src)="/assets/([0-9a-f]{12}\.' . preg_quote($extension, '#') . ')"#', $html, $match) === 1 ? $match[1] : null;
+    }
+
+    /** @return list<string> "Name: value" lines of the last dispatch(), Set-Cookie included, as a SAPI would list them */
+    protected function sentHeaderLines(): array
+    {
+        $lines = [];
+        foreach ($this->lastResponse?->headers() ?? [] as $name => $value) {
+            $lines[] = "$name: $value";
+        }
+        foreach ($this->lastResponse?->cookies() ?? [] as $cookie) {
+            $lines[] = "set-cookie: $cookie";
+        }
+        return $lines;
+    }
+
+    /** @return array<string, string> lower-cased header name => value of the last dispatch() */
+    protected function sentHeaders(): array
+    {
+        $headers = $this->lastResponse?->headers() ?? [];
+        // Older tests read Set-Cookie through here too; the kit keeps cookies apart.
+        $cookies = $this->lastResponse?->cookies() ?? [];
+        if ($cookies !== []) {
+            $headers['set-cookie'] = $cookies[count($cookies) - 1];
+        }
+        return $headers;
+    }
+}

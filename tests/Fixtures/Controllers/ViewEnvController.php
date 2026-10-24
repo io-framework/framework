@@ -1,0 +1,26 @@
+<?php
+
+namespace Io\Tests\Fixtures\Controllers;
+
+use Io\Http\View;
+use Io\Attributes\{Controller, Get};
+
+/**
+ * Dedicated fixture for proving Router::injectViewProperties() wires up
+ * #[Inject] properties (View::$env) on a returned View before render().
+ */
+#[Controller('/view-env')]
+class ViewEnvController
+{
+    #[Get]
+    public function show(): View
+    {
+        return new View('EnvView', partial: true);
+    }
+
+    #[Get('/request')]
+    public function request(): View
+    {
+        return new View('RequestView', partial: true);
+    }
+}

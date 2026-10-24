@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit bootstrap="tests/bootstrap.php"
+         colors="true">
+  <source>
+    <include>
+      <directory>src</directory>
+    </include>
+  </source>
+  <php>
+    <!-- Errors the tests provoke on purpose would land on stderr; a test that wants them sets error_log itself -->
+    <ini name="error_log" value="/dev/null"/>
+  </php>
+  <testsuites>
+    <testsuite name="Unit">
+      <directory>./tests</directory>
+    </testsuite>
+  </testsuites>
+</phpunit>

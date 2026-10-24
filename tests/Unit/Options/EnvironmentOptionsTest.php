@@ -1,0 +1,312 @@
+<?php
+
+namespace Io\Tests\Unit\Options;
+
+use PHPUnit\Framework\TestCase;
+use Io\Options\EnvironmentOptions;
+
+final class EnvironmentOptionsTest extends TestCase
+{
+    private const FIXTURES_DIR = __DIR__ . '/../../Fixtures/Env';
+
+    public function testLoadMergesBaseAndPerEnvironmentFiles(): void
+    {
+        $opts = (new EnvironmentOptions())->load(self::FIXTURES_DIR);
+
+        // .env.development overrides .env's DYNAMIC=base with DYNAMIC=dev,
+        // and adds OTHER=other; APP_ENV defaults to "development" under the
+        // CLI SAPI when it isn't set anywhere.
+        $this->assertSame('development', $opts->get('APP_ENV'));
+        $this->assertSame('dev', $opts->get('DYNAMIC'));
+        $this->assertSame('other', $opts->get('OTHER'));
+    }
+
+    public function testLoadSkipsCommentsAndLinesWithoutAnEquals(): void
+    {
+        // Fixtures/Env/.env.development contains a leading "# ..." comment
+        // and a bare "INVALID LINE"; load() must not choke on either and
+        // must still parse the rest.
+        $opts = (new EnvironmentOptions())->load(self::FIXTURES_DIR);
+
+        $this->assertSame('other', $opts->get('OTHER'));
+        $this->assertNull($opts->get('#'));
+        $this->assertNull($opts->get('# this line is a comment and must be skipped'));
+    }
+
+    public function testEnvFileLinesMayStartWithExportAndEndWithAComment(): void
+    {
+        $dir = sys_get_temp_dir() . '/io-env-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        file_put_contents("$dir/.env", implode("\n", [
+            'export API_KEY=abc',
+            'DB_URL=postgres://localhost # local default',
+            'QUOTED="a # b" # comment',
+            "SINGLE='x y'",
+            'HASH=abc#def',
+        ]) . "\n");
+        try {
+            $opts = (new EnvironmentOptions())->load($dir);
+            $this->assertSame('abc', $opts->get('API_KEY'));
+            $this->assertNull($opts->get('export API_KEY'));
+            $this->assertSame('postgres://localhost', $opts->get('DB_URL'));
+            $this->assertSame('a # b', $opts->get('QUOTED'));
+            $this->assertSame('x y', $opts->get('SINGLE'));
+            $this->assertSame('abc#def', $opts->get('HASH'));
+        } finally {
+            unlink("$dir/.env");
+            rmdir($dir);
+        }
+    }
+
+    public function testCommittedJsonIsTheDefaultThenEnvFilesThenTheProcessThenTheLocalFile(): void
+    {
+        $dir = sys_get_temp_dir() . '/io-env-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        file_put_contents("$dir/config.json", '{"WP_A":"json","WP_B":"json","WP_C":"json","WP_D":"json","WP_E":"json"}');
+        file_put_contents("$dir/.env", "WP_A=dotenv\nWP_B=dotenv\nWP_C=dotenv\nAPP_ENV=staging\n");
+        file_put_contents("$dir/.env.staging", "WP_A=dotenv-staging\n");
+        file_put_contents("$dir/config.local.json", '{"WP_C":"local"}');
+        putenv('WP_B=process');
+        putenv('WP_C=process');
+        try {
+            $opts = (new EnvironmentOptions())->set('WP_E', 'set')->load($dir);
+            $this->assertSame('staging', $opts->get('APP_ENV'));
+            $this->assertSame('dotenv-staging', $opts->get('WP_A'));
+            $this->assertSame('process', $opts->get('WP_B'));
+            $this->assertSame('local', $opts->get('WP_C'));
+            $this->assertSame('json', $opts->get('WP_D'));
+            $this->assertSame('set', $opts->get('WP_E'));
+        } finally {
+            putenv('WP_B');
+            putenv('WP_C');
+            foreach (['config.json', '.env', '.env.staging', 'config.local.json'] as $file) {
+                unlink("$dir/$file");
+            }
+            rmdir($dir);
+        }
+    }
+
+    public function testLoadOverlaysDollarEnvSuperglobal(): void
+    {
+        $_ENV['TEST_FROM_DOLLAR_ENV'] = 'from-dollar-env';
+        try {
+            $opts = (new EnvironmentOptions())->load(self::FIXTURES_DIR);
+            $this->assertSame('from-dollar-env', $opts->get('TEST_FROM_DOLLAR_ENV'));
+        } finally {
+            unset($_ENV['TEST_FROM_DOLLAR_ENV']);
+        }
+    }
+
+    public function testGetReturnsDefaultForMissingKey(): void
+    {
+        $opts = (new EnvironmentOptions())->load(self::FIXTURES_DIR);
+
+        $this->assertNull($opts->get('DOES_NOT_EXIST'));
+        $this->assertSame('fallback', $opts->get('DOES_NOT_EXIST', 'fallback'));
+    }
+
+    public function testGetAutoLoadsWhenNothingHasBeenLoadedYet(): void
+    {
+        $opts = new EnvironmentOptions();
+
+        // No explicit load() call: get() must trigger one lazily.
+        $this->assertNotNull($opts->get('APP_ENV'));
+    }
+
+    public function testSetBeforeTheFirstReadStillLoadsTheEnvironment(): void
+    {
+        $cwd = getcwd();
+        chdir(self::FIXTURES_DIR);
+        try {
+            $opts = (new EnvironmentOptions())->set('DYNAMIC', 'set-first');
+
+            $this->assertSame('set-first', $opts->get('DYNAMIC'));
+            $this->assertSame('base', $opts->get('FROM_CONFIG_JSON'));
+            $this->assertNotNull($opts->get('PATH'));
+        } finally {
+            chdir($cwd);
+        }
+    }
+
+    public function testSetOverridesLoadedValues(): void
+    {
+        $opts = (new EnvironmentOptions())->load(self::FIXTURES_DIR);
+        $opts->set('DYNAMIC', 'overridden');
+
+        $this->assertSame('overridden', $opts->get('DYNAMIC'));
+    }
+
+    public function testIsDevReflectsAppEnv(): void
+    {
+        $opts = (new EnvironmentOptions())->load(self::FIXTURES_DIR);
+        $this->assertTrue($opts->isDev());
+
+        $opts->set('APP_ENV', 'production');
+        $this->assertFalse($opts->isDev());
+    }
+
+    public function testIsDevAutoLoadsWhenNothingHasBeenLoadedYet(): void
+    {
+        $opts = new EnvironmentOptions();
+
+        // Same lazy-load contract as get(): under the CLI SAPI,
+        // detectEnvironment() defaults APP_ENV to "development", so this
+        // can only be true if isDev() triggered a load itself.
+        $this->assertTrue($opts->isDev());
+    }
+
+    public function testLoadWithoutAnExplicitDirDefaultsToTheCurrentWorkingDirectory(): void
+    {
+        // Regression test: load()'s default used to be __DIR__, which
+        // resolves inside the framework's own src/Io/Options under a
+        // real Composer install (vendor/io/framework/src/Io/Options),
+        // never where an application's .env actually lives. It must
+        // default to cwd instead, so chdir()-ing into the fixtures dir is
+        // enough to pick up its .env/.env.development without passing a
+        // path at all.
+        $originalCwd = getcwd();
+        chdir(self::FIXTURES_DIR);
+        try {
+            $opts = (new EnvironmentOptions())->load();
+            $this->assertSame('dev', $opts->get('DYNAMIC'));
+            $this->assertSame('other', $opts->get('OTHER'));
+        } finally {
+            chdir($originalCwd);
+        }
+    }
+
+    public function testLoadReturnsSelfForChaining(): void
+    {
+        $opts = new EnvironmentOptions();
+        $this->assertSame($opts, $opts->load(self::FIXTURES_DIR));
+    }
+
+    public function testSetReturnsSelfForChaining(): void
+    {
+        $opts = new EnvironmentOptions();
+        $this->assertSame($opts, $opts->set('KEY', 'value'));
+    }
+
+    public function testAFreshInstanceDoesNotCarryOverAnotherInstancesState(): void
+    {
+        $first = (new EnvironmentOptions())->load(self::FIXTURES_DIR);
+        $this->assertSame('dev', $first->get('DYNAMIC'));
+
+        // A brand new instance must not see $first's loaded/overridden
+        // state: each EnvironmentOptions is its own independent store,
+        // unlike the old static Env's single process-wide array.
+        $second = new EnvironmentOptions();
+        $this->assertNotSame('dev', $second->get('DYNAMIC'));
+    }
+
+    public function testLoadOverlaysBaseConfigJson(): void
+    {
+        $opts = (new EnvironmentOptions())->load(self::FIXTURES_DIR);
+        $this->assertSame('base', $opts->get('FROM_CONFIG_JSON'));
+    }
+
+    public function testLoadOverlaysPerEnvironmentConfigJson(): void
+    {
+        $opts = (new EnvironmentOptions())->load(self::FIXTURES_DIR);
+        $this->assertSame('dev', $opts->get('FROM_CONFIG_ENV_JSON'));
+    }
+
+    public function testLoadOverlaysTheLocalConfigFileByDefault(): void
+    {
+        $opts = (new EnvironmentOptions())->load(self::FIXTURES_DIR);
+        $this->assertSame('local', $opts->get('FROM_CONFIG_LOCAL_JSON'));
+    }
+
+    public function testJsonConfigLayersOverrideEachOtherInOrder(): void
+    {
+        $opts = (new EnvironmentOptions())->load(self::FIXTURES_DIR);
+
+        // config.json -> config.development.json -> config.local.json,
+        // each overlaid on top of the last, so config.local.json must win.
+        $this->assertSame('config.local.json', $opts->get('PRECEDENCE'));
+    }
+
+    public function testJsonConfigPreservesNonStringTypes(): void
+    {
+        $opts = (new EnvironmentOptions())->load(self::FIXTURES_DIR);
+
+        $this->assertSame(true, $opts->get('JSON_BOOL'));
+        $this->assertSame(42, $opts->get('JSON_INT'));
+    }
+
+    public function testLocalConfigFileDefaultsToConfigLocalJson(): void
+    {
+        $this->assertSame('config.local.json', (new EnvironmentOptions())->localConfigFile);
+    }
+
+    public function testLocalConfigFileCanBeDisabled(): void
+    {
+        $opts = new EnvironmentOptions();
+        $opts->localConfigFile = null;
+        $opts->load(self::FIXTURES_DIR);
+
+        $this->assertNull($opts->get('FROM_CONFIG_LOCAL_JSON'));
+        // The other JSON layers still apply; only the local one is off.
+        $this->assertSame('base', $opts->get('FROM_CONFIG_JSON'));
+    }
+
+    public function testLocalConfigFileNameCanBeCustomized(): void
+    {
+        $opts = new EnvironmentOptions();
+        $opts->localConfigFile = 'config.custom.json';
+        $opts->load(self::FIXTURES_DIR);
+
+        $this->assertSame('custom-value', $opts->get('FROM_CUSTOM_LOCAL_FILE'));
+        // The default config.local.json must NOT also be read once a
+        // custom name is set.
+        $this->assertNull($opts->get('FROM_CONFIG_LOCAL_JSON'));
+    }
+
+    public function testMissingJsonConfigFilesAreSilentlySkipped(): void
+    {
+        // Tests/Unit/Options itself has no config*.json at all, so this must not throw.
+        $opts = (new EnvironmentOptions())->load(__DIR__);
+        $this->assertNull($opts->get('FROM_CONFIG_JSON'));
+    }
+
+    public function testMalformedJsonConfigFileIsSilentlySkipped(): void
+    {
+        $opts = (new EnvironmentOptions())->load(self::FIXTURES_DIR . '/Malformed');
+        $this->assertNull($opts->get('ANYTHING'));
+    }
+
+    /** @return array<string, array{string, bool, string}> */
+    public static function detectedEnvironments(): array
+    {
+        return [
+            'cli' => ['cli', false, 'development'],
+            'built-in server' => ['cli-server', false, 'development'],
+            'tenma --watch' => ['tenma', true, 'development'],
+            'tenma' => ['tenma', false, 'production'],
+            'fpm' => ['fpm-fcgi', false, 'production'],
+            'frankenphp' => ['frankenphp', false, 'production'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('detectedEnvironments')]
+    public function testDetectsDevelopmentOnlyForTheCliTheBuiltInServerAndTenmaWatch(string $sapi, bool $watch, string $expected): void
+    {
+        $this->assertSame($expected, EnvironmentOptions::environmentFor($sapi, $watch));
+    }
+
+    public function testRequestHeadersAreNoEnvironment(): void
+    {
+        $_SERVER['HTTP_PROXY'] = 'http://evil.test';
+        $_SERVER['SERVER_NAME'] = 'localhost';
+        // FPM copies the request's FastCGI params, headers included, into $_ENV
+        $_ENV['HTTP_X_FORWARDED_HOST'] = 'evil.test';
+        try {
+            $opts = (new EnvironmentOptions())->load(self::FIXTURES_DIR . '/Malformed');
+            $this->assertNull($opts->get('HTTP_PROXY'));
+            $this->assertNull($opts->get('HTTP_X_FORWARDED_HOST'));
+            $this->assertSame('localhost', $opts->get('SERVER_NAME'));
+        } finally {
+            unset($_SERVER['HTTP_PROXY'], $_SERVER['SERVER_NAME'], $_ENV['HTTP_X_FORWARDED_HOST']);
+        }
+    }
+}

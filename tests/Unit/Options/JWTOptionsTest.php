@@ -1,0 +1,37 @@
+<?php
+
+namespace Io\Tests\Unit\Options;
+
+use PHPUnit\Framework\TestCase;
+use Error;
+use Io\Options\JWTOptions;
+
+final class JWTOptionsTest extends TestCase
+{
+    public function testDefaults(): void
+    {
+        $opts = new JWTOptions();
+        $this->assertSame(3600, $opts->ttl);
+        $this->assertSame('Bearer', $opts->tokenType);
+        $this->assertSame('Authorization', $opts->header);
+        $this->assertNull($opts->cookieName);
+    }
+
+    public function testSecretHasNoDefaultAndMustBeConfiguredBeforeUse(): void
+    {
+        $opts = new JWTOptions();
+
+        $this->expectException(Error::class);
+        // Reading an uninitialized typed property throws in PHP; this is
+        // deliberate so a forgotten secret fails loudly instead of silently
+        // signing tokens with a guessable default.
+        $opts->secret;
+    }
+
+    public function testSecretCanBeAssigned(): void
+    {
+        $opts = new JWTOptions();
+        $opts->secret = 'super-secret-long-enough-for-hmac-32';
+        $this->assertSame('super-secret-long-enough-for-hmac-32', $opts->secret);
+    }
+}

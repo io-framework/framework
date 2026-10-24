@@ -1,0 +1,556 @@
+<?php
+
+namespace Io\Tests\Unit\Http;
+
+use PHPUnit\Framework\TestCase;
+use Io\Http\Request;
+use Io\Http\Response;
+use Io\Options\CompressionOptions;
+
+final class ResponseTest extends TestCase
+{
+    private ?string $originalAcceptEncoding;
+
+    protected function setUp(): void
+    {
+        // PHP tracks "sent" headers process-wide even under the CLI SAPI;
+        // clear them so each test observes only its own send() call.
+        header_remove();
+        $this->originalAcceptEncoding = $_SERVER['HTTP_ACCEPT_ENCODING'] ?? null;
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->originalAcceptEncoding !== null) {
+            $_SERVER['HTTP_ACCEPT_ENCODING'] = $this->originalAcceptEncoding;
+        } else {
+            unset($_SERVER['HTTP_ACCEPT_ENCODING']);
+        }
+    }
+
+    private function sentHeaderLines(): array
+    {
+        // Plain headers_list() is always empty under the CLI SAPI (there is
+        // no real HTTP response to attach headers to); Xdebug separately
+        // tracks every header() call regardless of SAPI, so prefer that.
+        return function_exists('xdebug_get_headers') ? xdebug_get_headers() : headers_list();
+    }
+
+    private function sentHeaderNames(): array
+    {
+        return array_map(
+            fn (string $h) => strtolower(explode(':', $h, 2)[0]),
+            $this->sentHeaderLines()
+        );
+    }
+
+    /** The value of the (first) sent header with this name, case-insensitive, or null if it was never sent. */
+    private function sentHeaderValue(string $name): ?string
+    {
+        foreach ($this->sentHeaderLines() as $line) {
+            [$sentName, $value] = array_map('trim', explode(':', $line, 2) + [1 => '']);
+            if (strcasecmp($sentName, $name) === 0) {
+                return $value;
+            }
+        }
+        return null;
+    }
+
+    /** Every "Set-Cookie" header's value (the part after "Set-Cookie: "), in send() order. */
+    private function sentCookies(): array
+    {
+        return array_values(array_filter(array_map(
+            function (string $h) {
+                [$name, $value] = array_map('trim', explode(':', $h, 2) + [1 => '']);
+                return strtolower($name) === 'set-cookie' ? $value : null;
+            },
+            $this->sentHeaderLines()
+        )));
+    }
+
+    public function testMethodsAreChainable(): void
+    {
+        $res = new Response();
+        $this->assertSame($res, $res->status(201));
+        $this->assertSame($res, $res->withHeader('X-Test', '1'));
+        $this->assertSame($res, $res->write('body'));
+    }
+
+    public function testWriteAppendsAcrossCalls(): void
+    {
+        $res = (new Response())->write('Hello, ')->write('World!');
+
+        ob_start();
+        $res->send();
+        $output = ob_get_clean();
+
+        $this->assertSame('Hello, World!', $output);
+    }
+
+    public function testMapBodyRewritesTheBodyAsWrittenEvenForHead(): void
+    {
+        $res = (new Response())->forRequest(Request::fromParts('HEAD', '/'))->write('Hello, ');
+        $res->mapBody(fn (string $body): string => str_replace('Hello', 'Bye', $body))->write('World!')->finalize();
+
+        $this->assertSame('', $res->getBody());
+        $this->assertSame((string) strlen('Bye, World!'), $res->getHeader('Content-Length'));
+        $this->expectException(\LogicException::class);
+        $res->mapBody(fn (string $body): string => $body);
+    }
+
+    public function testSendSetsConfiguredStatusCode(): void
+    {
+        $res = (new Response())->status(201);
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $this->assertSame(201, http_response_code());
+    }
+
+    public function testSendDefaultsStatusTo200(): void
+    {
+        $res = new Response();
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $this->assertSame(200, http_response_code());
+    }
+
+    public function testSendAutoAddsContentLengthWhenNotProvided(): void
+    {
+        $res = (new Response())->write('12345');
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $this->assertContains('content-length', $this->sentHeaderNames());
+    }
+
+    public function testSendIncludesExplicitlySetHeaders(): void
+    {
+        $res = (new Response())->withHeader('X-Custom', 'yes');
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $this->assertContains('x-custom', $this->sentHeaderNames());
+    }
+
+    public function testSendIsIdempotentAndDoesNotEchoTheBodyTwice(): void
+    {
+        $res = (new Response())->write('hello');
+
+        ob_start();
+        $res->send();
+        $res->send();
+        $output = ob_get_clean();
+
+        $this->assertSame('hello', $output);
+    }
+
+    public function testSendIsIdempotentEvenWhenAHeaderIsAddedBetweenCalls(): void
+    {
+        // A header added after the first send() was never actually sent
+        // to the client. The first call is the one that counts, exactly
+        // like a real HTTP response can only be sent once.
+        $res = (new Response())->write('hello');
+
+        ob_start();
+        $res->send();
+        $res->withHeader('X-Too-Late', 'yes');
+        $res->send();
+        ob_end_clean();
+
+        $this->assertNull($this->sentHeaderValue('X-Too-Late'));
+    }
+
+    public function testHasHeaderIsFalseBeforeAnyHeaderIsSet(): void
+    {
+        $res = new Response();
+        $this->assertFalse($res->hasHeader('X-Custom'));
+    }
+
+    public function testHasHeaderIsTrueAfterWithHeader(): void
+    {
+        $res = (new Response())->withHeader('X-Custom', 'yes');
+        $this->assertTrue($res->hasHeader('X-Custom'));
+    }
+
+    public function testHasHeaderIsCaseInsensitive(): void
+    {
+        $res = (new Response())->withHeader('X-Custom', 'yes');
+        $this->assertTrue($res->hasHeader('x-custom'));
+        $this->assertTrue($res->hasHeader('X-CUSTOM'));
+    }
+
+    public function testWithCookieIsChainable(): void
+    {
+        $res = new Response();
+        $this->assertSame($res, $res->withCookie('session', 'abc'));
+    }
+
+    public function testWithCookieDefaultsToHttpOnlyAndSameSiteLaxWithNoMaxAge(): void
+    {
+        $res = (new Response())->withCookie('session', 'abc123');
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $cookies = $this->sentCookies();
+        $this->assertCount(1, $cookies);
+        $this->assertSame('session=abc123; Path=/; HttpOnly; SameSite=Lax', $cookies[0]);
+    }
+
+    public function testWithCookieIncludesMaxAgeWhenGiven(): void
+    {
+        $res = (new Response())->withCookie('session', 'abc123', maxAge: 3600);
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $this->assertSame('session=abc123; Path=/; Max-Age=3600; HttpOnly; SameSite=Lax', $this->sentCookies()[0]);
+    }
+
+    public function testWithCookieHonorsAllExplicitAttributes(): void
+    {
+        $res = (new Response())->withCookie(
+            'session',
+            'abc123',
+            maxAge: 60,
+            path: '/app',
+            domain: 'example.com',
+            secure: true,
+            httpOnly: false,
+            sameSite: 'Strict',
+        );
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $this->assertSame(
+            'session=abc123; Path=/app; Domain=example.com; Max-Age=60; Secure; SameSite=Strict',
+            $this->sentCookies()[0]
+        );
+    }
+
+    public function testACookieIsSecureByDefaultExactlyWhenTheRequestCameOverHttps(): void
+    {
+        $https = (new Response())->forRequest(Request::fromParts('GET', '/', https: true))->withCookie('a', '1');
+        $plain = (new Response())->forRequest(Request::fromParts('GET', '/'))->withCookie('a', '1');
+        $forced = (new Response())->forRequest(Request::fromParts('GET', '/'))->withCookie('a', '1', secure: true);
+
+        $this->assertSame('a=1; Path=/; Secure; HttpOnly; SameSite=Lax', $https->getCookies()[0]);
+        $this->assertSame('a=1; Path=/; HttpOnly; SameSite=Lax', $plain->getCookies()[0]);
+        $this->assertSame('a=1; Path=/; Secure; HttpOnly; SameSite=Lax', $forced->getCookies()[0]);
+    }
+
+    public function testWithCookieOmitsSameSiteWhenExplicitlyNull(): void
+    {
+        $res = (new Response())->withCookie('session', 'abc123', sameSite: null);
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $this->assertSame('session=abc123; Path=/; HttpOnly', $this->sentCookies()[0]);
+    }
+
+    public function testWithCookieUrlEncodesNameAndValue(): void
+    {
+        $res = (new Response())->withCookie('a name', 'a value');
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $this->assertStringStartsWith(rawurlencode('a name') . '=' . rawurlencode('a value'), $this->sentCookies()[0]);
+    }
+
+    public function testMultipleWithCookieCallsProduceSeparateSetCookieHeaders(): void
+    {
+        $res = (new Response())
+            ->withCookie('a', '1')
+            ->withCookie('b', '2');
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $cookies = $this->sentCookies();
+        $this->assertCount(2, $cookies);
+        $this->assertStringStartsWith('a=1;', $cookies[0]);
+        $this->assertStringStartsWith('b=2;', $cookies[1]);
+    }
+
+    public function testWithoutCookieIsChainable(): void
+    {
+        $res = new Response();
+        $this->assertSame($res, $res->withoutCookie('session'));
+    }
+
+    public function testWithoutCookieClearsWithAnEmptyValueAndMaxAgeZero(): void
+    {
+        $res = (new Response())->withoutCookie('session');
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $this->assertSame('session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax', $this->sentCookies()[0]);
+    }
+
+    public function testWithoutCookieHonorsPathAndDomain(): void
+    {
+        $res = (new Response())->withoutCookie('session', path: '/app', domain: 'example.com');
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $this->assertSame('session=; Path=/app; Domain=example.com; Max-Age=0; HttpOnly; SameSite=Lax', $this->sentCookies()[0]);
+    }
+
+    public function testDisableGzipIsChainable(): void
+    {
+        $res = new Response();
+        $this->assertSame($res, $res->disableGzip());
+    }
+
+    public function testSendCompressesWhenClientAcceptsGzipAndBodyMeetsTheThreshold(): void
+    {
+        $_SERVER['HTTP_ACCEPT_ENCODING'] = 'gzip, deflate, br';
+        $body = str_repeat('a', 2000);
+        $res = (new Response())->write($body);
+
+        ob_start();
+        $res->send();
+        $output = ob_get_clean();
+
+        $this->assertSame('gzip', $this->sentHeaderValue('Content-Encoding'));
+        $this->assertSame($body, gzdecode($output));
+    }
+
+    public function testHeaderNamesKnowNoCaseAndAnEncodedBodyIsLeftAlone(): void
+    {
+        $_SERVER['HTTP_ACCEPT_ENCODING'] = 'gzip';
+        $body = str_repeat('a', 2000);
+        $res = (new Response())->withHeader('content-encoding', 'br')->withHeader('X-Thing', 'a')->withHeader('x-thing', 'b')->write($body)->finalize();
+
+        $this->assertSame(['content-encoding' => 'br', 'x-thing' => 'b'], array_intersect_key($res->getHeaders(), ['content-encoding' => 1, 'x-thing' => 1]));
+        $this->assertArrayNotHasKey('X-Thing', $res->getHeaders());
+        $this->assertSame($body, $res->getBody());
+    }
+
+    /** @return array<string, array{string, bool}> */
+    public static function acceptEncodings(): array
+    {
+        return [
+            'plain gzip' => ['gzip, deflate, br', true],
+            'gzip with quality' => ['br;q=1.0, gzip;q=0.8', true],
+            'gzip refused' => ['gzip;q=0', false],
+            'gzip refused with spaces' => ['br, gzip ; q=0.0', false],
+            'wildcard' => ['*', true],
+            'wildcard but gzip refused' => ['*, gzip;q=0', false],
+            'something else' => ['br', false],
+            'not a coding named gzip' => ['gzipped', false],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('acceptEncodings')]
+    public function testCompressesOnlyWhenAcceptEncodingReallyAllowsGzip(string $acceptEncoding, bool $compressed): void
+    {
+        $_SERVER['HTTP_ACCEPT_ENCODING'] = $acceptEncoding;
+        $res = (new Response())->write(str_repeat('a', 2000));
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $this->assertSame($compressed ? 'gzip' : null, $this->sentHeaderValue('Content-Encoding'));
+    }
+
+    public function testCompressedResponseGetsAVaryAcceptEncodingHeader(): void
+    {
+        $_SERVER['HTTP_ACCEPT_ENCODING'] = 'gzip';
+        $res = (new Response())->write(str_repeat('a', 2000));
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $this->assertSame('Accept-Encoding', $this->sentHeaderValue('Vary'));
+    }
+
+    public function testCompressedResponseAppendsToAnAlreadySetVaryHeader(): void
+    {
+        $_SERVER['HTTP_ACCEPT_ENCODING'] = 'gzip';
+        $res = (new Response())->withHeader('Vary', 'Cookie')->write(str_repeat('a', 2000));
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $this->assertSame('Cookie, Accept-Encoding', $this->sentHeaderValue('Vary'));
+    }
+
+    public function testAddVaryKeepsListedHeadersAndNeverRepeatsOne(): void
+    {
+        $_SERVER['HTTP_ACCEPT_ENCODING'] = 'gzip';
+        $res = (new Response())->withHeader('Vary', 'Cookie')->addVary('Accept-Language')->addVary('cookie')->write(str_repeat('a', 2000));
+
+        ob_start();
+        $res->send();
+        ob_end_clean();
+
+        $this->assertSame('Cookie, Accept-Language, Accept-Encoding', $this->sentHeaderValue('Vary'));
+    }
+
+    public function testContentLengthReflectsTheCompressedBodyNotTheOriginal(): void
+    {
+        $_SERVER['HTTP_ACCEPT_ENCODING'] = 'gzip';
+        $body = str_repeat('a', 2000);
+        $res = (new Response())->write($body);
+
+        ob_start();
+        $res->send();
+        $output = ob_get_clean();
+
+        $this->assertSame((string) strlen($output), $this->sentHeaderValue('Content-Length'));
+        $this->assertNotSame((string) strlen($body), $this->sentHeaderValue('Content-Length'));
+    }
+
+    public function testSendDoesNotCompressWhenTheClientSendsNoAcceptEncodingHeader(): void
+    {
+        unset($_SERVER['HTTP_ACCEPT_ENCODING']);
+        $body = str_repeat('a', 2000);
+        $res = (new Response())->write($body);
+
+        ob_start();
+        $res->send();
+        $output = ob_get_clean();
+
+        $this->assertNull($this->sentHeaderValue('Content-Encoding'));
+        $this->assertSame($body, $output);
+    }
+
+    public function testSendDoesNotCompressWhenTheClientAcceptEncodingDoesNotMentionGzip(): void
+    {
+        $_SERVER['HTTP_ACCEPT_ENCODING'] = 'br, deflate';
+        $body = str_repeat('a', 2000);
+        $res = (new Response())->write($body);
+
+        ob_start();
+        $res->send();
+        $output = ob_get_clean();
+
+        $this->assertSame($body, $output);
+    }
+
+    public function testSendDoesNotCompressABodyBelowTheConfiguredThreshold(): void
+    {
+        $_SERVER['HTTP_ACCEPT_ENCODING'] = 'gzip';
+        $options = new CompressionOptions();
+        $options->minBytes = 1024;
+        $body = str_repeat('a', 100);
+        $res = (new Response($options))->write($body);
+
+        ob_start();
+        $res->send();
+        $output = ob_get_clean();
+
+        $this->assertNull($this->sentHeaderValue('Content-Encoding'));
+        $this->assertSame($body, $output);
+    }
+
+    public function testSendCompressesABodyAtOrAboveACustomThreshold(): void
+    {
+        $_SERVER['HTTP_ACCEPT_ENCODING'] = 'gzip';
+        $options = new CompressionOptions();
+        $options->minBytes = 50;
+        $body = str_repeat('a', 50);
+        $res = (new Response($options))->write($body);
+
+        ob_start();
+        $res->send();
+        $output = ob_get_clean();
+
+        $this->assertSame('gzip', $this->sentHeaderValue('Content-Encoding'));
+    }
+
+    public function testSendDoesNotCompressWhenCompressionOptionsDisablesIt(): void
+    {
+        $_SERVER['HTTP_ACCEPT_ENCODING'] = 'gzip';
+        $options = new CompressionOptions();
+        $options->enabled = false;
+        $body = str_repeat('a', 2000);
+        $res = (new Response($options))->write($body);
+
+        ob_start();
+        $res->send();
+        $output = ob_get_clean();
+
+        $this->assertNull($this->sentHeaderValue('Content-Encoding'));
+        $this->assertSame($body, $output);
+    }
+
+    public function testSendDoesNotCompressWhenDisableGzipWasCalled(): void
+    {
+        $_SERVER['HTTP_ACCEPT_ENCODING'] = 'gzip';
+        $body = str_repeat('a', 2000);
+        $res = (new Response())->write($body);
+        $res->disableGzip();
+
+        ob_start();
+        $res->send();
+        $output = ob_get_clean();
+
+        $this->assertNull($this->sentHeaderValue('Content-Encoding'));
+        $this->assertSame($body, $output);
+    }
+
+    public function testSendDoesNotDoubleCompressAResponseThatAlreadyHasAContentEncoding(): void
+    {
+        $_SERVER['HTTP_ACCEPT_ENCODING'] = 'gzip';
+        $body = str_repeat('a', 2000);
+        $res = (new Response())->withHeader('Content-Encoding', 'identity')->write($body);
+
+        ob_start();
+        $res->send();
+        $output = ob_get_clean();
+
+        $this->assertSame('identity', $this->sentHeaderValue('Content-Encoding'));
+        $this->assertSame($body, $output);
+    }
+
+    public function testGetHeaderIsCaseInsensitiveAndGetStatusReflectsStatus(): void
+    {
+        $res = (new Response())->withHeader('Content-Type', 'text/html')->status(404);
+
+        $this->assertSame('text/html', $res->getHeader('content-type'));
+        $this->assertNull($res->getHeader('X-Missing'));
+        $this->assertSame(404, $res->getStatus());
+        $this->assertSame(200, (new Response())->getStatus());
+    }
+
+    public function testUpgradeKeepsTheRuntimeObjectUntilWithoutUpgrade(): void
+    {
+        $res = new Response();
+        $this->assertNull($res->getUpgrade());
+
+        $websocket = new \stdClass();
+        $res->upgrade($websocket);
+        $this->assertSame($websocket, $res->getUpgrade());
+
+        $res->withoutUpgrade();
+        $this->assertNull($res->getUpgrade());
+    }
+}

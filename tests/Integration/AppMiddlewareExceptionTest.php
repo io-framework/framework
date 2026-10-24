@@ -1,0 +1,74 @@
+<?php
+
+namespace Io\Tests\Integration;
+
+use RuntimeException;
+use Io\Exceptions\UnauthorizedException;
+use Io\Http\{Request, Response};
+use Io\Tests\Fixtures\Controllers\CustomersController;
+use Io\App;
+
+/** Exceptions from $app->use() middleware get the same handlers as a route's: Problem Details, not a fatal error. */
+final class AppMiddlewareExceptionTest extends IntegrationTestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $app = App::create();
+        $app->use(function (Request $req, Response $res, callable $next): mixed {
+            return match ($req->path) {
+                '/unauthorized' => throw new UnauthorizedException(),
+                '/broken' => throw new RuntimeException('database password in a message'),
+                // Fails after the page was written, as a ResponseHook expanding tags can
+                '/half' => self::halfAPage($res),
+                default => $next($req, $res),
+            };
+        });
+        $app->attach([CustomersController::class]);
+    }
+
+    private static function halfAPage(Response $res): never
+    {
+        $res->withHeader('Content-Type', 'text/html')->withHeader('Cache-Control', 'public, max-age=31536000')->withHeader('Content-Encoding', 'gzip')
+            ->withCookie('session', 'abc')->write('<p>half a page');
+        throw new RuntimeException('late');
+    }
+
+    public function testAnExceptionAfterThePageWasWrittenReplacesItInsteadOfFollowingIt(): void
+    {
+        $output = $this->dispatch('GET', '/half');
+
+        $this->assertSame(500, $this->lastResponse?->status());
+        $this->assertSame('application/problem+json', $this->sentHeaders()['content-type'] ?? null);
+        $this->assertSame('Internal Server Error', json_decode($output, true)['title'] ?? null);
+        $this->assertArrayNotHasKey('cache-control', $this->sentHeaders());
+        $this->assertArrayNotHasKey('content-encoding', $this->sentHeaders());
+        $this->assertSame([], $this->lastResponse?->cookies() ?? []);
+    }
+
+    public function testAnHttpExceptionFromAnAppMiddlewareBecomesItsProblemDetails(): void
+    {
+        $output = $this->dispatch('GET', '/unauthorized');
+
+        $this->assertSame(401, $this->lastResponse?->status());
+        $this->assertSame('application/problem+json', $this->sentHeaders()['content-type'] ?? null);
+        $this->assertSame(401, json_decode($output, true)['status'] ?? null);
+    }
+
+    public function testMiddlewareSeesThePathTheRouterMatches(): void
+    {
+        foreach (['//unauthorized/', '/%75nauthorized'] as $uri) {
+            $this->dispatch('GET', $uri);
+            $this->assertSame(401, $this->lastResponse?->status(), $uri);
+        }
+    }
+
+    public function testAnyOtherExceptionFromAnAppMiddlewareBecomesAGeneric500WithoutItsMessage(): void
+    {
+        $output = $this->dispatch('GET', '/broken');
+
+        $this->assertSame(500, $this->lastResponse?->status());
+        $this->assertStringNotContainsString('password', $output);
+        $this->assertSame('Internal Server Error', json_decode($output, true)['title'] ?? null);
+    }
+}

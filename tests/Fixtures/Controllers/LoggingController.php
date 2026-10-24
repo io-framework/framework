@@ -1,0 +1,22 @@
+<?php
+
+namespace Io\Tests\Fixtures\Controllers;
+
+use Io\Attributes\{Controller, Get};
+use Io\Logger;
+
+/**
+ * Logs from inside a real dispatched request. Proves Logger::log()
+ * picks up the current request's id (RequestContext, set by
+ * App::handleHttp()) on its own, without the route handler passing it in.
+ */
+#[Controller('/logging')]
+class LoggingController
+{
+    #[Get('/ping')]
+    public function ping(): string
+    {
+        (new Logger())->info('handled ping');
+        return 'pong';
+    }
+}

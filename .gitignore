@@ -1,0 +1,11 @@
+.phpunit.result.cache
+.DS_Store
+
+/vendor
+/src/cache
+
+/.vscode
+
+
+/ui/node_modules
+/ui/dist

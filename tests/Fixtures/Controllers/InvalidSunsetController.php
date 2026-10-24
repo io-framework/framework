@@ -1,0 +1,17 @@
+<?php
+
+namespace Io\Tests\Fixtures\Controllers;
+
+use Io\Attributes\{Controller, Get, Sunset};
+
+/** A malformed #[Sunset] date. It must degrade to "no Sunset header" rather than crashing the compile. */
+#[Controller('/bad-sunset')]
+class InvalidSunsetController
+{
+    #[Get('/route')]
+    #[Sunset(date: 'not-a-date')]
+    public function route(): array
+    {
+        return ['ok' => true];
+    }
+}

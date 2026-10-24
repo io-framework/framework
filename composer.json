@@ -1,0 +1,82 @@
+{
+  "name": "io/framework",
+  "description": "A lightweight PHP framework for building APIs and server-rendered UIs, with attribute-based routing.",
+  "keywords": [
+    "php",
+    "framework",
+    "api",
+    "routing",
+    "attributes",
+    "middleware",
+    "cors",
+    "gzip",
+    "stateless"
+  ],
+  "type": "library",
+  "license": ["MIT", "Apache-2.0"],
+  "authors": [
+    {
+      "name": "Lento Leisenfeld",
+      "email": "lento@leisenfeld.com"
+    }
+  ],
+  "scripts": {
+    "test": "vendor/bin/phpunit --testdox --display-deprecations --display-warnings",
+    "e2e": "php vendor/bin/phpunit --testdox Tests/EndToEnd",
+    "stan": "phpstan analyse",
+    "coverage:text": "XDEBUG_MODE=coverage vendor/bin/phpunit --coverage-text",
+    "coverage:html": "XDEBUG_MODE=coverage vendor/bin/phpunit --coverage-html coverage/",
+    "build:ui": "npm --prefix ui ci && npm --prefix ui run build",
+    "test:ui": "npm --prefix ui ci && npm --prefix ui test",
+    "check:ui": "npm --prefix ui ci --silent && npm --prefix ui run --silent check:bundle"
+  },
+  "autoload": {
+    "psr-4": {
+      "Io\\": "src/Io/"
+    },
+    "files": [
+      "src/Io/classes.php"
+    ]
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Io\\Tests\\": "tests/"
+    }
+  },
+  "require": {
+    "php": ">=8.5",
+    "psr/container": "^2.0",
+    "psr/http-factory": "^1.1",
+    "psr/http-message": "^2.0",
+    "psr/http-server-handler": "^1.0",
+    "psr/log": "^3.0"
+  },
+  "require-dev": {
+    "monolog/monolog": "^3.9",
+    "nyholm/psr7": "^1.8",
+    "phpstan/phpstan": "^2.2",
+    "phpunit/phpunit": "^13.3",
+    "tenma/psr": "^0.1.2",
+    "tenma/stubs": "^0.2.0"
+  },
+  "suggest": {
+    "monolog/monolog": "Powerful logging with handlers, channels, and JSON output.",
+    "phpunit/phpunit": "Required by the Io\\Testing kit for app and plugin tests.",
+    "tenma/psr": "Response::upgrade() through the PSR-15 handler under Tenma"
+  },
+  "bin": [
+    "bin/io-check"
+  ],
+  "extra": {
+    "tenma": {
+      "lsp": "Io\\View\\Editor"
+    },
+    "phpstan": {
+      "includes": [
+        "extension.neon"
+      ]
+    }
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}

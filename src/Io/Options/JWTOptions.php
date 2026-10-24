@@ -1,0 +1,29 @@
+<?php
+
+namespace Io\Options;
+
+/** HS256 JWT signing/verification (Io\JWT, useJwt()). */
+class JWTOptions
+{
+    /** Signing secret. Deliberately uninitialized: reading it unset throws instead of signing with a guessable default. */
+    public string $secret;
+
+    /** Token lifetime in seconds. */
+    public int $ttl = 3600;
+
+    /** Expected prefix on the header value. */
+    public string $tokenType = 'Bearer';
+
+    /** Request header the token is read from. */
+    public string $header = 'Authorization';
+
+    /** Cookie to also read the token from when the header has none. This lets a signed-in session survive a full page load. Null disables it. */
+    public ?string $cookieName = null;
+
+    /**
+     * Where an UnauthorizedException sends a browser page navigation (Sec-Fetch-Mode: navigate) as a
+     * 302 instead of 401 JSON. Null (default): always 401, right for an API with no login page. Any
+     * other fetch()/XHR call gets the 401 either way.
+     */
+    public ?string $loginRedirectUrl = null;
+}

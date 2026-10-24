@@ -1,0 +1,26 @@
+<?php
+
+namespace Io\Tests\Fixtures\Middlewares;
+
+use Io\Http\{MiddlewareBase, Request, Response};
+use Io\Tests\Fixtures\Support\CallTracker;
+
+/**
+ * Builds its own response and returns false from before(), proving
+ * MiddlewareBase's veto mechanism prevents $next() (and after(), and the
+ * controller) from ever running. Doesn't call Response::send() itself;
+ * nothing in this codebase does anymore; App::handleHttp() sends the
+ * final $res exactly once, after the whole pipe (this veto included) has
+ * run.
+ */
+class ShortCircuitMiddleware extends MiddlewareBase
+{
+    protected function before(Request $req, Response $res): bool
+    {
+        CallTracker::record('short-circuit');
+        $res->status(403)
+            ->withHeader('Content-Type', 'application/json')
+            ->write(json_encode(['error' => 'blocked by middleware']));
+        return false;
+    }
+}

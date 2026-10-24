@@ -1,0 +1,22 @@
+includes:
+    - vendor/tenma/stubs/extension.neon
+    - extension.neon
+
+parameters:
+    level: 10
+    paths:
+        - src
+    excludePaths:
+        - tests
+    typeAliases:
+        # Shapes RouteCompiler produces and Router/FileSystem/OpenAPIGenerator consume.
+        # Optional RoutePlan keys match Router's `?? default` reads: a routes.php cached by an
+        # older Io may genuinely lack a key a later feature added.
+        AttributeEntry: 'array{name: string, args: array<int|string, mixed>}'
+        PropInjectEntry: 'array{name: string, type: string|null}'
+        MiddlewareEntry: 'array{class: string, method: string, propInject: array<int, PropInjectEntry>}'
+        FormatterSpec: 'array{type: string, options: array<string, mixed>|null}'
+        RoutePlan: 'array{httpMethod: string, path: string, regex: string|null, controller: string|object, method: string, argPlan: array<int, array<string, mixed>>, propInject: array<int, PropInjectEntry>, formatter?: FormatterSpec, middlewares?: array<int, MiddlewareEntry>, gzip?: bool, version?: string|null, unversionedPath?: string, deprecated?: bool, sunsetHeader?: string|null, skipCsrf?: bool, authenticated?: bool, role?: string|null, permissions?: array<int, string>|null, throws: array<int, mixed>}'
+        TaskPlan: 'array{name: string, fullName: string, manager: string|object, method: string, argPlan: array<int, array<string, mixed>>, propInject: array<int, PropInjectEntry>, formatter: FormatterSpec, throws: array<int, mixed>}'
+        # Router::getRoutes()' flattened per-route summary (a stdClass), consumed by findRoute() and OpenAPIGenerator.
+        RouteSummary: 'object{method: string, rawPath: string, handlerSpec: array{0: string|object, 1: string}, version: string|null, unversionedPath: string}'

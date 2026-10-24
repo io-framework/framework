@@ -1,0 +1,92 @@
+<?php
+
+namespace Io\Tests\Integration;
+
+use Io\App;
+use Io\Http\View;
+use Io\Options\{RendererOptions, FileSystemOptions};
+use Io\Tests\Fixtures\Controllers\NestedViewsController;
+
+/**
+ * Views in subdirectories of RendererOptions::$directory, addressed as
+ * `new View('Admin/Users')`, with their sibling .css/.js discovered,
+ * scoped and served exactly like a top-level view's (see
+ * ViewAssets::discoverViewNames()).
+ */
+final class NestedViewsTest extends IntegrationTestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $app = App::create();
+        $app->configure(function (RendererOptions $opts) {
+            $opts->directory = __DIR__ . '/../Fixtures/Views';
+            $opts->layout = '_Layout.php';
+        });
+        $app->attach([NestedViewsController::class]);
+    }
+
+    public function testNestedViewRendersInsideTheRootLayout(): void
+    {
+        $output = $this->dispatch('GET', '/nested/admin-users');
+
+        $this->assertStringContainsString('<html', $output);
+        $this->assertStringContainsString('admin users view hit', $output);
+    }
+
+    public function testNestedViewsSiblingCssIsDiscoveredAndLinkedByThePage(): void
+    {
+        $output = $this->dispatch('GET', '/nested/admin-users');
+
+        $this->assertNotNull(self::linkedViewAsset($output, 'css'));
+        $this->assertNull(self::linkedViewAsset($output, 'js'));
+    }
+
+    public function testNestedViewsCssIsScopedToItsSlashedNameAndServed(): void
+    {
+        $css = self::linkedViewAsset($this->dispatch('GET', '/nested/admin-users'), 'css');
+
+        $assetsPath = App::getConfig(FileSystemOptions::class)->assetsPath;
+        $output = $this->dispatch('GET', "$assetsPath/$css");
+
+        $this->assertStringContainsString('[data-view="Admin/Users"] {', $output);
+        $this->assertStringContainsString('.users-table', $output);
+    }
+
+    public function testNestedViewsScopeAttributeCarriesTheSlashedName(): void
+    {
+        $view = new View('Admin/Users');
+        $view->setAssets(['css' => 'abc.css', 'js' => null]);
+
+        $this->assertSame('data-view="Admin/Users"', (string) $view->scopeAttribute());
+    }
+
+    public function testAViewNameEscapingTheViewsDirectoryIsRejected(): void
+    {
+        $output = $this->dispatch('GET', '/nested/by-name?name=' . rawurlencode('../../../composer'));
+
+        $this->assertSame(500, $this->lastResponse?->status());
+        $this->assertStringNotContainsString('systonia', $output);
+    }
+
+    public function testATemplateThrowingHalfWayLeavesNoOutputAndNoOpenBufferBehind(): void
+    {
+        $level = ob_get_level();
+        $output = $this->dispatch('GET', '/nested/by-name?name=Throwing');
+
+        $this->assertSame(500, $this->lastResponse?->status());
+        $this->assertStringNotContainsString('PARTIAL-TEMPLATE-OUTPUT', $output);
+        $this->assertStringNotContainsString('PARTIAL-SECTION-OUTPUT', $output);
+        // A buffer left open would swallow or leak the next request's output in a persistent worker
+        $this->assertSame($level, ob_get_level());
+    }
+
+    public function testAnAbsoluteViewNameIsRejected(): void
+    {
+        $this->dispatch('GET', '/nested/by-name?name=' . rawurlencode('/etc/passwd'));
+
+        $this->assertSame(500, $this->lastResponse?->status());
+    }
+
+}

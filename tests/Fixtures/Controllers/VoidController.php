@@ -1,0 +1,29 @@
+<?php
+
+namespace Io\Tests\Fixtures\Controllers;
+
+use Io\Attributes\{Controller, Delete, Get};
+use Io\Http\Response;
+
+/** Actions that build the response themselves and return nothing */
+#[Controller('/void')]
+class VoidController
+{
+    #[Get('/text')]
+    public function text(Response $res): void
+    {
+        $res->withHeader('Content-Type', 'text/plain')->write('hello');
+    }
+
+    #[Delete('/gone')]
+    public function gone(Response $res): void
+    {
+        $res->status(204);
+    }
+
+    #[Get('/über')]
+    public function umlaut(): string
+    {
+        return 'found';
+    }
+}

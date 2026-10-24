@@ -1,0 +1,42 @@
+/** Small DOM helpers every other module builds on. */
+
+/**
+ * One delegated listener on `document` for every element carrying `attribute`,
+ * present now or inserted later. Nothing is ever bound per element, so a swap
+ * never needs re-binding. `capture` is for events that don't bubble.
+ */
+export function delegate(
+    eventType: string,
+    attribute: string,
+    handler: (el: HTMLElement, event: Event) => void,
+    capture = false,
+): void {
+    document.addEventListener(
+        eventType,
+        (event) => {
+            const target = event.target;
+            if (!(target instanceof Element)) return;
+            const el = target.closest<HTMLElement>(`[${attribute}]`);
+            if (el) handler(el, event);
+        },
+        capture,
+    );
+}
+
+/** Runs `fn` once the DOM is parsed (immediately if it already is). */
+export function onReady(fn: () => void): void {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', fn, { once: true });
+    } else {
+        fn();
+    }
+}
+
+/** True when `input` points at this page's own origin; an unparsable address counts as foreign. */
+export function isSameOrigin(input: RequestInfo | URL): boolean {
+    try {
+        return new URL(input instanceof Request ? input.url : String(input), location.href).origin === location.origin;
+    } catch {
+        return false;
+    }
+}

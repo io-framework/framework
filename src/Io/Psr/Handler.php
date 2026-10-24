@@ -1,0 +1,111 @@
+<?php
+
+namespace Io\Psr;
+
+use Psr\Http\Message\{ResponseFactoryInterface, ResponseInterface, ServerRequestInterface, StreamFactoryInterface, UploadedFileInterface};
+use Psr\Http\Server\RequestHandlerInterface;
+use Http\{StreamedResponse, WebSocketResponse};
+use Tenma\Psr\Upgrade;
+use Io\App;
+use Io\Http\{Request, Response, UploadedFile};
+use Io\Support\Arr;
+use Io\Tenma\Bridge;
+
+/**
+ * The app as a PSR-15 handler, for any server that speaks PSR-7: `new Handler($app, new Psr17Factory())`.
+ * Under Tenma through tenma/psr, under any other PSR-7 server, or
+ * behind PSR-15 middlewares of other packages. `new Http\Server(3000, $app)->start()` stays the direct way under Tenma.
+ *
+ * Response::upgrade() needs Tenma and tenma/psr: it goes out as Tenma\Psr\Upgrade.
+ */
+final class Handler implements RequestHandlerInterface
+{
+    public function __construct(private readonly App $app, private readonly ResponseFactoryInterface&StreamFactoryInterface $factory)
+    {
+    }
+
+    public function handle(ServerRequestInterface $request): ResponseInterface
+    {
+        if (class_exists(\Http\Server::class, false)) {
+            Bridge::installStorage();
+        }
+        $response = $this->app->handle(self::toIo($request));
+        $psr = $this->toPsr($response);
+        if ($response->getUpgrade() === null) {
+            return $psr;
+        }
+        // Bridge wraps the handler with the request's context and gives a stream the app's headers
+        $upgrade = Bridge::toTenma($response);
+        if (!class_exists(Upgrade::class) || !($upgrade instanceof WebSocketResponse || $upgrade instanceof StreamedResponse)) {
+            throw new \LogicException('Response::upgrade() through PSR-15 needs Tenma and tenma/psr');
+        }
+        return new Upgrade($psr, $upgrade);
+    }
+
+    public static function toIo(ServerRequestInterface $request): Request
+    {
+        $headers = [];
+        foreach ($request->getHeaders() as $name => $values) {
+            $headers[(string) $name] = implode(', ', $values);
+        }
+        $uri = $request->getUri();
+        $query = $uri->getQuery();
+        $cookies = array_filter($request->getCookieParams(), fn (mixed $value, mixed $name): bool => is_string($name) && is_string($value), ARRAY_FILTER_USE_BOTH);
+        $parsed = $request->getParsedBody();
+        $req = Request::fromParts(
+            $request->getMethod(),
+            ($uri->getPath() !== '' ? $uri->getPath() : '/') . ($query !== '' ? "?$query" : ''),
+            $headers,
+            (string) $request->getBody(),
+            $cookies,
+            // Whatever the server put into the URI; a proxy's X-Forwarded-Proto it only trusts if told to
+            $uri->getScheme() === 'https',
+            is_array($parsed) ? $parsed : null,
+            self::files($request->getUploadedFiles()),
+            is_string($request->getServerParams()['REMOTE_ADDR'] ?? null) ? $request->getServerParams()['REMOTE_ADDR'] : '',
+        );
+        // The query params, not the query string again: a middleware may have changed them
+        $req->query = Arr::stringKeyed($request->getQueryParams());
+        return $req;
+    }
+
+    /**
+     * PSR-7's uploads as Io's; empty file inputs (UPLOAD_ERR_NO_FILE) are left out, as under FPM.
+     *
+     * @param array<array-key, mixed> $files
+     * @return array<array-key, mixed>
+     */
+    private static function files(array $files): array
+    {
+        $uploads = [];
+        foreach ($files as $name => $file) {
+            if ($file instanceof UploadedFileInterface && $file->getError() !== UPLOAD_ERR_NO_FILE) {
+                $uploads[$name] = new UploadedFile(
+                    // PSR-7 leaves the client's name as sent; FPM and Tenma keep only the file's own name
+                    basename(str_replace('\\', '/', $file->getClientFilename() ?? '')),
+                    $file->getClientMediaType() ?? '',
+                    $file->getSize() ?? 0,
+                    static fn (): string => (string) $file->getStream(),
+                    $file->moveTo(...),
+                    $file->getError(),
+                );
+            } elseif (is_array($file) && ($nested = self::files($file)) !== []) {
+                $uploads[$name] = $nested;
+            }
+        }
+        // A list stays a list when an empty input in the middle is left out
+        return array_is_list($files) ? array_values($uploads) : $uploads;
+    }
+
+    private function toPsr(Response $response): ResponseInterface
+    {
+        $psr = $this->factory->createResponse($response->getStatus());
+        foreach ($response->getHeaders() as $name => $value) {
+            $psr = $psr->withHeader($name, $value);
+        }
+        foreach ($response->getCookies() as $cookie) {
+            $psr = $psr->withAddedHeader('Set-Cookie', $cookie);
+        }
+        return $psr->withBody($this->factory->createStream($response->getBody()));
+    }
+}

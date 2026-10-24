@@ -1,0 +1,186 @@
+<?php
+
+namespace Io\Tests\Integration;
+
+use RuntimeException;
+use Psr\Container\NotFoundExceptionInterface;
+use Psr\Log\LogLevel;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Io\App;
+use Io\Http\{Request, Response};
+use Io\Exceptions\ForbiddenException;
+use Io\Options\{LoggerOptions, EnvironmentOptions};
+use Io\Tests\Fixtures\Controllers\{ConstructorArgumentController, GuardedController};
+use Io\Tests\Fixtures\Support\DummyLogger;
+
+final class ExceptionHandlingTest extends IntegrationTestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        App::create()->attach([GuardedController::class]);
+    }
+
+    public function testAControllerTheContainerCannotBuildIsALogged500ThatNamesNoClass(): void
+    {
+        App::reset();
+        $logger = new DummyLogger();
+        $app = App::create();
+        $app->configure(fn (LoggerOptions $options) => $options->add($logger));
+        $app->attach([ConstructorArgumentController::class]);
+
+        $output = $this->dispatch('GET', '/needs-argument');
+
+        $this->assertSame(500, $this->lastResponse?->status());
+        $this->assertStringNotContainsString('ConstructorArgumentController', $output);
+        $this->assertStringContainsString('ConstructorArgumentController', json_encode(array_column($logger->logs, 1)) ?: '');
+    }
+
+    public function testForbiddenExceptionMapsTo403(): void
+    {
+        $output = $this->dispatch('GET', '/guarded/forbidden');
+        $this->assertSame(
+            ['type' => 'about:blank', 'title' => 'Forbidden', 'status' => 403],
+            json_decode($output, true)
+        );
+    }
+
+    public function testUnauthorizedExceptionMapsTo401(): void
+    {
+        $output = $this->dispatch('GET', '/guarded/unauthorized');
+        $this->assertSame(
+            ['type' => 'about:blank', 'title' => 'Unauthorized', 'status' => 401],
+            json_decode($output, true)
+        );
+    }
+
+    public function testSubclassOfARegisteredExceptionFallsBackToItsParentsHandler(): void
+    {
+        // No handler is registered for SpecificForbiddenException itself;
+        // resolveExceptionHandler() must walk up to ForbiddenException.
+        $output = $this->dispatch('GET', '/guarded/forbidden-subclass');
+        $this->assertSame(
+            ['type' => 'about:blank', 'title' => 'Forbidden', 'status' => 403],
+            json_decode($output, true)
+        );
+    }
+
+    public function testExceptionMatchingARegisteredInterfaceUsesThatHandler(): void
+    {
+        // No default handler is registered under the interface itself (only
+        // under the concrete NotFoundException class), so register one here
+        // to exercise resolveExceptionHandler()'s interface-matching branch:
+        // CustomNotFoundInterfaceException implements the interface without
+        // extending NotFoundException, so only that branch can find it.
+        App::create()->useExceptionHandler(
+            NotFoundExceptionInterface::class,
+            function (NotFoundExceptionInterface $e, Request $req, Response $res) {
+                $res->status(404)
+                    ->withHeader('Content-Type', 'application/json')
+                    ->write(json_encode(['error' => $e->getMessage()]))
+                    ->send();
+            }
+        );
+
+        $output = $this->dispatch('GET', '/guarded/not-found-interface');
+        $this->assertSame(['error' => 'via interface'], json_decode($output, true));
+    }
+
+    public function testNotFoundExceptionMapsTo404WithItsOwnMessage(): void
+    {
+        $output = $this->dispatch('GET', '/guarded/missing');
+        $this->assertSame(
+            ['type' => 'about:blank', 'title' => 'Not Found', 'status' => 404, 'detail' => 'Widget not found'],
+            json_decode($output, true)
+        );
+    }
+
+    /**
+     * The generic Throwable fallback never exposes $e->getMessage() (or a
+     * stack trace), regardless of environment. See App::
+     * registerDefaultExceptionHandlers()'s Throwable::class handler for why
+     * isDev() alone was judged not to be a safe enough switch for that.
+     * Both "development" and "production" are asserted explicitly so a
+     * future reintroduction of environment-conditional exposure fails this
+     * test in either direction, not just one.
+     *
+     */
+    #[DataProvider('environmentProvider')]
+    public function testUnexpectedExceptionHidesItsMessageRegardlessOfEnvironment(string $env): void
+    {
+        App::create()->configure(function (EnvironmentOptions $opts) use ($env) {
+            $opts->set('APP_ENV', $env);
+        });
+
+        $output = $this->dispatch('GET', '/guarded/boom');
+        $decoded = json_decode($output, true);
+
+        $this->assertSame(
+            ['type' => 'about:blank', 'title' => 'Internal Server Error', 'status' => 500],
+            $decoded
+        );
+        $this->assertStringNotContainsString('unexpected failure', $output);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function environmentProvider(): array
+    {
+        return [
+            'development' => ['development'],
+            'production' => ['production'],
+        ];
+    }
+
+    public function testUnexpectedExceptionIsLoggedThroughTheConfiguredLogger(): void
+    {
+        // Regression test: the default Throwable handler resolves Logger
+        // via the container (Container::get(Logger::class)), rather than
+        // calling a static Logger::error(), and must still reach whatever
+        // LoggerOptions the app configured.
+        $logger = new DummyLogger();
+        App::create()->configure(function (LoggerOptions $opts) use ($logger) {
+            $opts->add($logger, [LogLevel::ERROR]);
+        });
+
+        $this->dispatch('GET', '/guarded/boom');
+
+        $this->assertCount(1, $logger->logs);
+        $this->assertSame(LogLevel::ERROR, $logger->logs[0][0]);
+        $this->assertSame('unexpected failure', $logger->logs[0][1]);
+    }
+
+    public function testCustomHandlerOverridesTheDefaultForThatExceptionType(): void
+    {
+        App::create()->useExceptionHandler(
+            ForbiddenException::class,
+            function (ForbiddenException $e, Request $req, Response $res) {
+                $res->status(451)
+                    ->withHeader('Content-Type', 'application/json')
+                    ->write(json_encode(['blocked' => true]))
+                    ->send();
+            }
+        );
+
+        $output = $this->dispatch('GET', '/guarded/forbidden');
+
+        $this->assertSame(['blocked' => true], json_decode($output, true));
+    }
+
+    public function testCustomHandlerCanBeRegisteredForAnArbitraryExceptionClass(): void
+    {
+        App::create()->useExceptionHandler(
+            RuntimeException::class,
+            function (RuntimeException $e, Request $req, Response $res) {
+                $res->status(418)
+                    ->withHeader('Content-Type', 'application/json')
+                    ->write(json_encode(['error' => $e->getMessage()]))
+                    ->send();
+            }
+        );
+
+        $output = $this->dispatch('GET', '/guarded/boom');
+
+        $this->assertSame(['error' => 'unexpected failure'], json_decode($output, true));
+    }
+}

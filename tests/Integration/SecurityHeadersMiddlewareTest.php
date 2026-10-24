@@ -1,0 +1,166 @@
+<?php
+
+namespace Io\Tests\Integration;
+
+use Io\App;
+use Io\Http\SecurityHeadersMiddleware;
+use Io\Options\SecurityHeaderOptions;
+use Io\Tests\Fixtures\Controllers\SecurityHeaderController;
+use Io\Tests\Fixtures\Support\CallTracker;
+use Io\Tests\Fixtures\Middlewares\RecordingMiddleware;
+
+final class SecurityHeadersMiddlewareTest extends IntegrationTestCase
+{
+    private function bootApp(): void
+    {
+        $app = App::create();
+        $app->attach([SecurityHeaderController::class]);
+        $app->use(new SecurityHeadersMiddleware());
+    }
+
+    public function testDefaultHeadersAreSetOnAPlainResponse(): void
+    {
+        $this->bootApp();
+
+        $this->dispatch('GET', '/security/plain');
+        $headers = $this->sentHeaders();
+
+        $this->assertSame('nosniff', $headers['x-content-type-options'] ?? null);
+        $this->assertSame('DENY', $headers['x-frame-options'] ?? null);
+        $this->assertSame('strict-origin-when-cross-origin', $headers['referrer-policy'] ?? null);
+    }
+
+    public function testCspIsAbsentByDefault(): void
+    {
+        $this->bootApp();
+
+        $this->dispatch('GET', '/security/plain');
+
+        $this->assertArrayNotHasKey('content-security-policy', $this->sentHeaders());
+    }
+
+    public function testHstsIsAbsentOnAPlainHttpRequest(): void
+    {
+        $this->bootApp();
+
+        $this->dispatch('GET', '/security/plain');
+
+        $this->assertArrayNotHasKey('strict-transport-security', $this->sentHeaders());
+    }
+
+    public function testHstsIsSentWhenTheRequestArrivedOverHttps(): void
+    {
+        $this->bootApp();
+
+        $_SERVER['HTTPS'] = 'on';
+        try {
+            $this->dispatch('GET', '/security/plain');
+        } finally {
+            unset($_SERVER['HTTPS']);
+        }
+
+        $this->assertSame('max-age=31536000; includeSubDomains', $this->sentHeaders()['strict-transport-security'] ?? null);
+    }
+
+    public function testHstsIsAbsentWhenServerHttpsIsExplicitlyOff(): void
+    {
+        // Some servers set it to the literal string 'off' rather than leaving it unset.
+        $this->bootApp();
+
+        $_SERVER['HTTPS'] = 'off';
+        try {
+            $this->dispatch('GET', '/security/plain');
+        } finally {
+            unset($_SERVER['HTTPS']);
+        }
+
+        $this->assertArrayNotHasKey('strict-transport-security', $this->sentHeaders());
+    }
+
+    public function testControllerSetHeaderIsNeverOverwritten(): void
+    {
+        $this->bootApp();
+
+        $this->dispatch('GET', '/security/custom-frame-options');
+
+        $this->assertSame('SAMEORIGIN', $this->sentHeaders()['x-frame-options'] ?? null);
+    }
+
+    public function testHeadersAreOnAnErrorALaterMiddlewareThrows(): void
+    {
+        $this->bootApp();
+        App::getInstance()->use(fn () => throw new \Io\Exceptions\UnauthorizedException());
+
+        $this->dispatch('GET', '/security/plain');
+
+        $this->assertSame(401, $this->lastResponse?->status());
+        $this->assertSame('nosniff', $this->sentHeaders()['x-content-type-options'] ?? null);
+    }
+
+    public function testIndividualHeadersCanBeDisabled(): void
+    {
+        $app = App::create();
+        $app->attach([SecurityHeaderController::class]);
+        $app->configure(function (SecurityHeaderOptions $opts) {
+            $opts->frameOptionsEnabled = false;
+        });
+        $app->use(new SecurityHeadersMiddleware());
+
+        $this->dispatch('GET', '/security/plain');
+        $headers = $this->sentHeaders();
+
+        $this->assertArrayNotHasKey('x-frame-options', $headers);
+        // The others stay on: disabling one doesn't disable the rest.
+        $this->assertSame('nosniff', $headers['x-content-type-options'] ?? null);
+    }
+
+    public function testHeaderValuesAreOverridable(): void
+    {
+        $app = App::create();
+        $app->attach([SecurityHeaderController::class]);
+        $app->configure(function (SecurityHeaderOptions $opts) {
+            $opts->frameOptions = 'SAMEORIGIN';
+        });
+        $app->use(new SecurityHeadersMiddleware());
+
+        $this->dispatch('GET', '/security/plain');
+
+        $this->assertSame('SAMEORIGIN', $this->sentHeaders()['x-frame-options'] ?? null);
+    }
+
+    public function testCspIsSentOnceOptedIntoWithAValue(): void
+    {
+        $app = App::create();
+        $app->attach([SecurityHeaderController::class]);
+        $app->configure(function (SecurityHeaderOptions $opts) {
+            $opts->cspEnabled = true;
+            $opts->csp = "default-src 'self'";
+        });
+        $app->use(new SecurityHeadersMiddleware());
+
+        $this->dispatch('GET', '/security/plain');
+
+        $this->assertSame("default-src 'self'", $this->sentHeaders()['content-security-policy'] ?? null);
+    }
+
+    public function testMultipleUseRegisteredMiddlewaresRunAfterHooksInReverseRegistrationOrder(): void
+    {
+        // Confirms the "onion" execution model: App::handleHttp() nests
+        // $app->use() middlewares LIFO, so before() runs in registration
+        // order (First, Second) but after() runs in the *reverse* order
+        // (Second, First), since the last-registered middleware is the
+        // innermost wrap, closest to the controller.
+        $app = App::create();
+        $app->attach([SecurityHeaderController::class]);
+        $app->use(new RecordingMiddleware('First'));
+        $app->use(new RecordingMiddleware('Second'));
+
+        $this->dispatch('GET', '/security/plain');
+
+        $this->assertSame(
+            ['First:before', 'Second:before', 'Second:after', 'First:after'],
+            CallTracker::$calls
+        );
+    }
+
+}
