@@ -132,4 +132,22 @@ final class FiberLocalTest extends TestCase
         }))->start();
         $this->assertSame('req-1', $seen);
     }
+
+    public function testCaptureUnsetsWhatWasUnsetWhenItWasTaken(): void
+    {
+        $user = new FiberLocal();
+        $anonymous = FiberLocal::capture();
+        $user->set('alice');
+        $alice = FiberLocal::capture();
+        $later = new FiberLocal();
+
+        // The tab of an anonymous visitor renders after Alice's: it must not see her
+        $alice();
+        $later->set('alice-only');
+        $anonymous();
+        $this->assertSame([null, null], [$user->get(), $later->get()]);
+
+        $alice();
+        $this->assertSame(['alice', null], [$user->get(), $later->get()]);
+    }
 }

@@ -41,24 +41,23 @@ final class FiberLocal implements LocalStorage
     }
 
     /**
-     * Takes the current values of every FiberLocal and returns a function that sets them again, in whatever
-     * Fiber or task calls it. For work that runs after the request was reset but belongs to it: App::handle()
-     * captures before it resets an upgraded request, and Tenma\Bridge restores in the WebSocket handler.
+     * Takes the current values of every FiberLocal and returns a function that sets exactly them again, in
+     * whatever Fiber or task calls it. For work that runs after the request was reset but belongs to it:
+     * App::handle() captures before it resets an upgraded request, and Tenma\Bridge restores in the WebSocket
+     * handler. A FiberLocal that was unset, or created after the capture, is unset again: no value of the code
+     * that ran in between stays behind.
      *
      * @return Closure(): void
      */
     public static function capture(): Closure
     {
-        $values = [];
+        $values = new WeakMap();
         foreach (self::$all ?? [] as $local => $_) {
-            $value = $local->get();
-            if ($value !== null) {
-                $values[] = [$local, $value];
-            }
+            $values[$local] = $local->get();
         }
         return static function () use ($values): void {
-            foreach ($values as [$local, $value]) {
-                $local->set($value);
+            foreach (self::$all ?? [] as $local => $_) {
+                $local->set($values[$local] ?? null);
             }
         };
     }
