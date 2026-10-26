@@ -38,9 +38,11 @@ public function __construct()
 public static function capture(): \Closure
 ```
 
-Takes the current values of every FiberLocal and returns a function that sets them again, in whatever
-Fiber or task calls it. For work that runs after the request was reset but belongs to it: App::handle()
-captures before it resets an upgraded request, and Tenma\Bridge restores in the WebSocket handler.
+Takes the current values of every FiberLocal and returns a function that sets exactly them again, in
+whatever Fiber or task calls it. For work that runs after the request was reset but belongs to it:
+App::handle() captures before it resets an upgraded request, and Tenma\Bridge restores in the WebSocket
+handler. A FiberLocal that was unset, or created after the capture, is unset again: no value of the code
+that ran in between stays behind.
 
 **Returns** [`Closure`](https://www.php.net/manual/en/class.closure.php)`(): void`
 
