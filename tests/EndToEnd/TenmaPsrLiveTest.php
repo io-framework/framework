@@ -19,9 +19,4 @@ final class TenmaPsrLiveTest extends TenmaLiveTest
         parent::tearDownAfterClass();
         putenv('E2E_PSR');
     }
-
-    public function testUnderTenmasOwnTlsCookiesAreSecure(): void
-    {
-        $this->markTestSkipped('tenma/psr builds an http:// URI even over Tenma\'s own TLS');
-    }
 }
