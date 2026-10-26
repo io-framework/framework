@@ -14,14 +14,13 @@ require __DIR__ . '/vendor/autoload.php';
 use Bakery\Controllers\{ApiController, BackofficeController, SessionController, ShopController};
 use Bakery\Tasks\DatabaseTasks;
 use Io\Environment;
-use Io\Options\{CsrfOptions, EnvironmentOptions, FileSystemOptions, JWTOptions, RendererOptions};
+use Io\Options\{CsrfOptions, FileSystemOptions, JWTOptions, RendererOptions};
 use Io\App;
 
 // 1. create
 $app = App::create();
 
 // 2. configure
-$app->configure(fn (EnvironmentOptions $env) => $env->load(__DIR__));
 $env = $app->get(Environment::class);
 
 $app->configure(function (FileSystemOptions $fs, RendererOptions $views, JWTOptions $jwt, CsrfOptions $csrf) use ($env) {
@@ -96,13 +95,11 @@ Secrets and per-machine settings come from [`Environment`](../reference/Io/Envir
 
 A value set with `Environment::set()` wins over all of them. Missing files are skipped. Keys starting with `HTTP_` are never read from any source: under FPM and CGI those are the request's headers, which the client chose.
 
-The files are read from the current working directory unless `load()` names another one. The bakery points it at the directory of `app.php`, so it doesn't matter where the server was started (a front controller in `public/` would pass `dirname(__DIR__)`):
+The files are read on the first `get()`, from the project root: the directory with `composer.json`. Where the server was started doesn't matter, and a front controller in `public/` finds them too. `load()` points it at another directory:
 
 ```php
-$app->configure(fn (EnvironmentOptions $env) => $env->load(__DIR__));
+$app->configure(fn (EnvironmentOptions $env) => $env->load('/etc/bakery'));
 ```
-
-Without that call the files are loaded from the working directory on the first `get()`.
 
 `.env` holds `KEY=value` lines. Blank lines and lines starting with `#` are skipped, a leading `export ` is dropped, a quoted value is what stands between its quotes, an unquoted one ends at ` #` (a trailing comment), and every value is a string:
 

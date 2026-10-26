@@ -12,7 +12,7 @@ use Io\Options\EnvironmentOptions;
  */
 class Environment
 {
-    /** @param string|null $dir Directory holding .env/config files; defaults to getcwd(). */
+    /** @param string|null $dir Directory holding .env/config files; defaults to the project root, where composer.json is. */
     public function load(?string $dir = null): void
     {
         App::getConfig(EnvironmentOptions::class)->load($dir);

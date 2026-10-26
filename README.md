@@ -1664,16 +1664,12 @@ later `load()`.
 `string()`, `int()`, `float()` and `bool()` (`"false"`, `"0"`, `"off"` are `false`) convert it, and without a
 default throw a `RuntimeException` naming a missing key: `$env->int('UNCONFIRMED_MINUTES', 15)`, `$env->string('DATABASE_URL')`.
 
-`$dir` **defaults to the current working directory** (the project root, for how PHP is normally invoked:
-`php -S ... -t public`, `composer`/CLI tasks, most process managers), not this file's own location.
-Call it explicitly with an absolute path if your entry point's cwd isn't reliable in your deployment,
-either directly or via `configure()`:
+The files are read from the **project root**, the directory with `composer.json`, wherever the server was
+started. `load($dir)` reads them from another directory, directly or via
+`$app->configure(fn (EnvironmentOptions $env) => $env->load($dir))`:
 
 ```php
-use Io\Options\EnvironmentOptions;
-
-// from the bakery's app.php: config.json, config.<APP_ENV>.json and .env next to this file
-$app->configure(fn (EnvironmentOptions $env) => $env->load(__DIR__));
+// from the bakery's app.php: config.json, config.<APP_ENV>.json and .env in the project root
 $env = $app->get(Environment::class);
 date_default_timezone_set($env->string('BAKERY_TIMEZONE', 'Europe/Berlin'));
 ```

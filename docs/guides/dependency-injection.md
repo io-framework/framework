@@ -90,7 +90,6 @@ There is no service attribute and no service list: a class becomes a service by 
 A service that needs arguments, such as a database connection or an API key, is created in the front controller and registered before `attach()`. The bakery opens one pool of Postgres connections in `app.php` and registers it:
 
 ```php
-$app->configure(fn (EnvironmentOptions $env) => $env->load(__DIR__));
 $env = $app->get(Environment::class);
 
 // One pool of Postgres connections per worker, shared by every service that injects Postgres

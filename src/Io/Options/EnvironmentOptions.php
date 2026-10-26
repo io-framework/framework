@@ -2,6 +2,7 @@
 
 namespace Io\Options;
 
+use Composer\InstalledVersions;
 use Io\Support\Arr;
 
 /**
@@ -23,7 +24,7 @@ class EnvironmentOptions
     /** A gitignored, per-developer JSON override read last (so it wins over everything); null disables it. */
     public ?string $localConfigFile = 'config.local.json';
 
-    /** @param string|null $dir Where .env/config files live; defaults to getcwd() (the project root under a normal invocation, never vendor/). */
+    /** @param string|null $dir Where .env/config files live; defaults to the project root, where composer.json is. */
     public function load(?string $dir = null): self
     {
         $this->loaded = true;
@@ -38,7 +39,7 @@ class EnvironmentOptions
             }
         }
 
-        $base = rtrim($dir ?? (getcwd() ?: __DIR__), '/\\');
+        $base = rtrim($dir ?? InstalledVersions::getRootPackage()['install_path'], '/\\');
         $dotenv = self::readEnvFile("$base/.env");
 
         $env = $this->overrides['APP_ENV'] ?? $process['APP_ENV'] ?? $dotenv['APP_ENV'] ?? null;

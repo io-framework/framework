@@ -115,17 +115,10 @@ final class EnvironmentOptionsTest extends TestCase
 
     public function testSetBeforeTheFirstReadStillLoadsTheEnvironment(): void
     {
-        $cwd = getcwd();
-        chdir(self::FIXTURES_DIR);
-        try {
-            $opts = (new EnvironmentOptions())->set('DYNAMIC', 'set-first');
+        $opts = (new EnvironmentOptions())->set('DYNAMIC', 'set-first');
 
-            $this->assertSame('set-first', $opts->get('DYNAMIC'));
-            $this->assertSame('base', $opts->get('FROM_CONFIG_JSON'));
-            $this->assertNotNull($opts->get('PATH'));
-        } finally {
-            chdir($cwd);
-        }
+        $this->assertSame('set-first', $opts->get('DYNAMIC'));
+        $this->assertNotNull($opts->get('PATH'));
     }
 
     public function testSetOverridesLoadedValues(): void
@@ -155,21 +148,15 @@ final class EnvironmentOptionsTest extends TestCase
         $this->assertTrue($opts->isDev());
     }
 
-    public function testLoadWithoutAnExplicitDirDefaultsToTheCurrentWorkingDirectory(): void
+    public function testLoadWithoutAnExplicitDirReadsTheProjectRootNotTheWorkingDirectory(): void
     {
-        // Regression test: load()'s default used to be __DIR__, which
-        // resolves inside the framework's own src/Io/Options under a
-        // real Composer install (vendor/io/framework/src/Io/Options),
-        // never where an application's .env actually lives. It must
-        // default to cwd instead, so chdir()-ing into the fixtures dir is
-        // enough to pick up its .env/.env.development without passing a
-        // path at all.
+        // The default is where composer.json is, so where the server was started doesn't matter: FPM runs
+        // public/index.php in public/, and a .env there must not be read
         $originalCwd = getcwd();
         chdir(self::FIXTURES_DIR);
         try {
             $opts = (new EnvironmentOptions())->load();
-            $this->assertSame('dev', $opts->get('DYNAMIC'));
-            $this->assertSame('other', $opts->get('OTHER'));
+            $this->assertNull($opts->get('DYNAMIC'));
         } finally {
             chdir($originalCwd);
         }

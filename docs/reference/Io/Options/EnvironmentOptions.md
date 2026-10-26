@@ -36,7 +36,7 @@ public function load(?string $dir = null): \Io\Options\EnvironmentOptions
 
 **Parameters**
 
-- `$dir` `string|null`: Where .env/config files live; defaults to getcwd() (the project root under a normal invocation, never vendor/).
+- `$dir` `string|null`: Where .env/config files live; defaults to the project root, where composer.json is.
 
 **Returns** [`EnvironmentOptions`](EnvironmentOptions.md)
 

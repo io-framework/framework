@@ -25,7 +25,7 @@ public function load(?string $dir = null): void
 
 **Parameters**
 
-- `$dir` `string|null`: Directory holding .env/config files; defaults to getcwd().
+- `$dir` `string|null`: Directory holding .env/config files; defaults to the project root, where composer.json is.
 
 ### set()
 
