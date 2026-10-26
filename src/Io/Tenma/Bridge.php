@@ -46,8 +46,8 @@ final class Bridge
             $request->headers,
             $request->body,
             $cookies,
-            // Tenma speaks plain HTTP; TLS ends at a proxy, whose X-Forwarded-Proto App::handle() applies if ProxyOptions trusts it
-            false,
+            // True when Tenma ends TLS itself (--tls-cert); behind a proxy App::handle() applies X-Forwarded-Proto if ProxyOptions trusts it
+            $request->https,
             // multipart is parsed by Tenma, a urlencoded or JSON body by fromParts() itself
             $multipart ? $request->form() : null,
             $multipart ? self::files($request->files()) : [],

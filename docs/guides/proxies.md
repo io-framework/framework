@@ -58,7 +58,7 @@ Without the proxy in the list, every request would come from `10.0.0.2` and fail
 | PSR-15 handler | the server's `REMOTE_ADDR` server parameter |
 | testing kit | empty |
 
-Under Tenma, which speaks plain HTTP, `$req->https` is false unless a trusted proxy says otherwise. Under the PSR-15 handler it follows the scheme of the request URI the server built.
+Under Tenma, `$req->https` is true when Tenma ends TLS itself (`--tls-cert`), and a trusted proxy's `X-Forwarded-Proto` overrides it. Under the PSR-15 handler it follows the scheme of the request URI the server built.
 
 Trust only what really sits in front of the app. A range that also covers clients (a whole office network, `0.0.0.0/0`) lets them choose their own address.
 

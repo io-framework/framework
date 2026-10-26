@@ -121,4 +121,49 @@ class TenmaLiveTest extends FullAppLiveTest
         $this->assertMatchesRegularExpression('/^set-cookie: seen=1;/mi', $response);
         $this->assertStringContainsString("data: hello\n\n", $response);
     }
+
+    public function testUnderTenmasOwnTlsCookiesAreSecure(): void
+    {
+        $dir = sys_get_temp_dir() . '/io-e2e-tls-' . getmypid();
+        @mkdir($dir);
+        $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+        $csr = openssl_csr_new(['commonName' => '127.0.0.1'], $key);
+        openssl_x509_export(openssl_csr_sign($csr, null, $key, 1), $cert);
+        openssl_pkey_export($key, $pem);
+        file_put_contents("$dir/cert.pem", $cert);
+        file_put_contents("$dir/key.pem", $pem);
+
+        $port = self::findFreePort();
+        $command = [
+            (string) self::tenma(),
+            '--tls-cert', "$dir/cert.pem",
+            '--tls-key', "$dir/key.pem",
+            __DIR__ . '/server/index.php',
+        ];
+        $process = proc_open($command, [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, null, [...getenv(), 'PORT' => (string) $port]);
+        $this->assertIsResource($process);
+
+        $handle = curl_init("https://127.0.0.1:$port/tenma/events");
+        curl_setopt_array($handle, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => true,
+            CURLOPT_TIMEOUT => 5,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => 0,
+        ]);
+        $deadline = microtime(true) + 5;
+        do {
+            $response = curl_exec($handle);
+        } while ($response === false && microtime(true) < $deadline && usleep(50_000) === null);
+        $error = curl_error($handle);
+        // An open keep-alive connection would hold Tenma's shutdown for --stop-timeout
+        unset($handle);
+        proc_terminate($process);
+        proc_close($process);
+        array_map(unlink(...), glob("$dir/*.pem") ?: []);
+        rmdir($dir);
+
+        $this->assertIsString($response, $error);
+        $this->assertMatchesRegularExpression('/^set-cookie: seen=1;.*; secure/mi', $response);
+    }
 }

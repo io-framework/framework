@@ -87,7 +87,7 @@ abstract class LiveServerTestCase extends TestCase
         rmdir($dir);
     }
 
-    private static function findFreePort(): int
+    protected static function findFreePort(): int
     {
         $socket = stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
         if ($socket === false) {
