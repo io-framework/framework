@@ -80,6 +80,8 @@ The body is decoded only as what its `Content-Type` declares:
 
 A `text/plain` body that looks like JSON is not read as JSON, so a form on another site can't pose as a JSON request. `$req->body('email')` returns one field, `$req->body()` the whole array. For anything beyond a field or two, bind a DTO with `#[Body]` instead (see [Binding and validation](binding.md)).
 
+A JSON body is decoded the first time something reads it (`#[Body]`, `$req->body`), which is after routing and the route's guards: a request to no route, or one a guard turns away, never costs the decoding. A JSON body larger than [`RequestOptions::$maxJsonBytes`](../reference/Io/Options/RequestOptions.md) (256 KiB) is not decoded at all: `#[Body]` answers `413 Content Too Large`, and `$req->bodyTooLarge` is true. Keys that collide in PHP's array hash make decoding slow with the square of their number (a 1 MiB body of them takes about 750 ms), so raise the limit only when the app takes larger JSON bodies.
+
 ### Uploaded files
 
 A `multipart/form-data` request carries its files in `$req->files`, nested as the field names say. [`$req->file()`](../reference/Io/Http/Request.md#file) returns one [`UploadedFile`](../reference/Io/Http/UploadedFile.md), named as in the form: `'picture'`, `'documents[allergens]'`, `'photos[1]'`. A back office route that takes a new product picture:

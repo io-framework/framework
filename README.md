@@ -463,7 +463,9 @@ Unknown keys in the input array are silently ignored, and so are keys naming a p
 `protected(set)`/`private(set)` or static property: those are the DTO's own state, never request input. A writable
 property without a default (`public string $email;`) is required: left unset, it fails `This value is required.`
 (a `422`, not an uninitialized-property `500`). A JSON body that doesn't parse answers `400 Bad Request` before
-any DTO is built. A backed enum property (`public OrderStatus $status`) gets the case its value names via `tryFrom()`, and
+any DTO is built. A JSON body is decoded only when something reads it (`#[Body]`, `$req->body`), after routing and
+the route's guards; one larger than `RequestOptions::$maxJsonBytes` (256 KiB) answers `413 Content Too Large`
+instead, because keys that collide in PHP's array hash make decoding slow with the square of their number. A backed enum property (`public OrderStatus $status`) gets the case its value names via `tryFrom()`, and
 `This value should be one of: pending, received, baking, ready, picked_up, cancelled.` otherwise. A property typed with another `FromArray` DTO is built
 from the nested array, and an `array` property with `#[ListOf(OrderLine::class)]` (`map: true` for string
 keys) gets each element built as a DTO or enum case; nested errors are reported under
@@ -1859,6 +1861,12 @@ plain properties; `$levels` is one PSR-3 level or a list of them, all levels wit
 | `securitySchemes` | `[]` | `components.securitySchemes` entries; pair with `#[Throws]`/route-level auth as needed. |
 | `security` | `[]` | Top-level `security` requirement entries. |
 | `externalDocs` | `null` | Optional `{description, url}` external documentation link. |
+
+### [RequestOptions](#hydrating-dtos-fromarray)
+
+| Setting | Default | Description |
+|---|---|---|
+| `maxJsonBytes` | `262144` | A larger JSON body answers `413` instead of being decoded. |
 
 ### [RendererOptions](#views)
 

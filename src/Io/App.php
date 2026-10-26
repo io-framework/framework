@@ -13,7 +13,7 @@ use Throwable;
 use Io\Attributes\{PII, Sensitive};
 use Io\Exceptions\{HttpException, UnauthorizedException};
 use Io\Http\{Request, Response, TrustedProxies, View};
-use Io\Options\{CompressionOptions, CorsOptions, CsrfOptions, FileSystemOptions, JWTOptions, ProxyOptions};
+use Io\Options\{CompressionOptions, CorsOptions, CsrfOptions, FileSystemOptions, JWTOptions, ProxyOptions, RequestOptions};
 use Io\Plugin\{Plugin, PluginRegistry};
 use Io\Routing\{PropertyInjector, ServiceDiscovery};
 use Io\Support\FiberLocal;
@@ -330,6 +330,7 @@ class App
     public function handle(Request $req): Response
     {
         TrustedProxies::apply($req, $this->container->get(ProxyOptions::class)->trusted);
+        $req->maxJsonBytes = $this->container->get(RequestOptions::class)->maxJsonBytes;
         $res = (new Response($this->container->get(CompressionOptions::class)))->forRequest($req);
         $res->withHeader('X-Request-ID', $req->id);
         $this->container->get(RequestContext::class)->setRequestId($req->id);

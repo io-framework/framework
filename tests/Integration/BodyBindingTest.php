@@ -4,7 +4,7 @@ namespace Io\Tests\Integration;
 
 use Io\App;
 use Io\Http\Request;
-use Io\Options\RendererOptions;
+use Io\Options\{RendererOptions, RequestOptions};
 use Io\Tests\Fixtures\Controllers\BodyBindingController;
 
 final class BodyBindingTest extends IntegrationTestCase
@@ -49,6 +49,30 @@ final class BodyBindingTest extends IntegrationTestCase
         $res->assertContentType('text/html');
 
         $this->request('POST', '/body/form')->withBody(['name' => 'Ada'])->send()->assertOk()->assertJson(['name' => 'Ada']);
+    }
+
+    public function testAJsonBodyOverTheLimitIsTooLargeAndNeverDecoded(): void
+    {
+        $app = App::create();
+        $app->configure(fn (RequestOptions $requests) => $requests->maxJsonBytes = 20);
+        $json = ['Content-Type' => 'application/json'];
+
+        $res = $app->handle(Request::fromParts('POST', '/body/raw', $json, '{"name":"a long enough name"}'));
+        $this->assertSame(413, $res->getStatus());
+        $this->assertSame('Content Too Large', json_decode($res->getBody(), true)['title'] ?? null);
+
+        $this->assertSame(200, $app->handle(Request::fromParts('POST', '/body/raw', $json, '{"name":"Ada"}'))->getStatus());
+    }
+
+    public function testAJsonBodyIsDecodedOnlyWhenARouteReadsIt(): void
+    {
+        $req = Request::fromParts('POST', '/nowhere', ['Content-Type' => 'application/json'], '{"name":"Ada"}');
+        $pending = new \ReflectionProperty(Request::class, 'json');
+
+        $this->assertSame(404, App::create()->handle($req)->getStatus());
+        $this->assertSame('{"name":"Ada"}', $pending->getValue($req));
+        $this->assertSame(['name' => 'Ada'], $req->body);
+        $this->assertNull($pending->getValue($req));
     }
 
     public function testAMalformedJsonBodyIsABadRequest(): void

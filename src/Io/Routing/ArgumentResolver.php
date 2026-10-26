@@ -58,9 +58,12 @@ final class ArgumentResolver
         return $binder?->resolve($arg, $req, $res, $params);
     }
 
-    /** $req, unless its JSON body did not parse: a 400, not a DTO built from nothing. */
+    /** $req, unless its JSON body was too large (413) or did not parse (400): not a DTO built from nothing. */
     private static function parsed(Request $req): Request
     {
+        if ($req->bodyTooLarge) {
+            throw new HttpException(413, 'Content Too Large', "The JSON body is {$req->bodyError}.");
+        }
         if ($req->bodyError !== null) {
             throw new HttpException(400, 'Bad Request', "Malformed JSON body: {$req->bodyError}.");
         }

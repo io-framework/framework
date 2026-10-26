@@ -73,6 +73,7 @@ Configure before `attach()`: `FileSystemOptions` and `RendererOptions` are read 
 | [`FileSystemOptions`](../reference/Io/Options/FileSystemOptions.md) | public directory, route cache, asset URL prefix | [Views](views.md), [Caching](caching.md) |
 | [`RendererOptions`](../reference/Io/Options/RendererOptions.md) | views directory and layout | [Views](views.md) |
 | [`CompressionOptions`](../reference/Io/Options/CompressionOptions.md) | gzip | [Requests and responses](requests-responses.md#compression) |
+| [`RequestOptions`](../reference/Io/Options/RequestOptions.md) | the largest JSON body that is decoded | [Requests and responses](requests-responses.md#the-body) |
 | [`CorsOptions`](../reference/Io/Options/CorsOptions.md) | `Access-Control-*` headers | [Middleware](middleware.md#cors) |
 | [`SecurityHeaderOptions`](../reference/Io/Options/SecurityHeaderOptions.md) | security response headers | [Middleware](middleware.md#security-headers) |
 | [`JWTOptions`](../reference/Io/Options/JWTOptions.md) | JWT sign-in | [Authentication](authentication.md) |

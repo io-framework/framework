@@ -18,4 +18,5 @@ generated: true
 - [`PermissionOptions`](PermissionOptions.md) · class: The app's PermissionProvider for #[Permissions(...)].
 - [`ProxyOptions`](ProxyOptions.md) · class: The reverse proxies in front of the app (nginx, Caddy, a load balancer), by address or CIDR range: `['127.0.0.1', '10.0.0.0/8', '::1']`.
 - [`RendererOptions`](RendererOptions.md) · class: Where view templates live and which layout wraps them.
+- [`RequestOptions`](RequestOptions.md) · class: Limits on what a request may bring.
 - [`SecurityHeaderOptions`](SecurityHeaderOptions.md) · class: The headers Io\Http\SecurityHeadersMiddleware fills in, each with an on/off flag and a value.

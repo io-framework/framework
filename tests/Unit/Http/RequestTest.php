@@ -210,6 +210,25 @@ final class RequestTest extends TestCase
         $this->assertNull(Request::fromParts('POST', '/', ['Content-Type' => 'application/json'])->bodyError);
     }
 
+    public function testABodySetBeforeTheJsonIsReadReplacesIt(): void
+    {
+        $req = Request::fromParts('POST', '/', ['Content-Type' => 'application/json'], '{"admin":true}');
+        $req->body = ['name' => 'Ada'];
+
+        $this->assertSame(['name' => 'Ada'], $req->body);
+        $this->assertNull($req->bodyError);
+    }
+
+    public function testAJsonBodyOverTheLimitStaysUndecoded(): void
+    {
+        $req = Request::fromParts('POST', '/', ['Content-Type' => 'application/json'], '{"name":"Ada"}');
+        $req->maxJsonBytes = 10;
+
+        $this->assertSame([], $req->body);
+        $this->assertTrue($req->bodyTooLarge);
+        $this->assertSame('larger than 10 bytes', $req->bodyError);
+    }
+
     public function testCaptureCarriesCookiesHttpsAndTheBareAuthorizationVariable(): void
     {
         $cookieBackup = $_COOKIE;

@@ -62,20 +62,37 @@ public array $query = [];
 ### $body
 
 ```php
-public array $body = [];
+public array $body = [] { get; set; }
 ```
 
 **Type** `array<array-key, mixed>`
 
-A JSON object/form body (string keys) or a JSON list body (int keys, see #[Body(of: ...)]).
+A JSON object/form body (string keys) or a JSON list body (int keys, see #[Body(of: ...)]). A JSON body is
+decoded when it is first read, after routing and guards, so a request to no route never pays for it.
 
 ### $bodyError
 
 ```php
-public ?string $bodyError = null;
+public ?string $bodyError = null { get; }
 ```
 
 Why a JSON body could not be decoded (json_last_error_msg()), null when it could or there was none: #[Body] answers 400 then.
+
+### $bodyTooLarge
+
+```php
+public bool $bodyTooLarge = false { get; }
+```
+
+Whether the JSON body was larger than $maxJsonBytes and so not decoded: #[Body] answers 413 then.
+
+### $maxJsonBytes
+
+```php
+public int $maxJsonBytes = 262144;
+```
+
+The largest JSON body that is decoded; App::handle() sets it from RequestOptions::$maxJsonBytes.
 
 ### $cookies
 

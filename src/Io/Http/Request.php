@@ -29,11 +29,44 @@ class Request
     /** @var array<string, mixed> */
     public array $query = [];
 
-    /** @var array<array-key, mixed> A JSON object/form body (string keys) or a JSON list body (int keys, see #[Body(of: ...)]). */
-    public array $body = [];
+    /**
+     * A JSON object/form body (string keys) or a JSON list body (int keys, see #[Body(of: ...)]). A JSON body is
+     * decoded when it is first read, after routing and guards, so a request to no route never pays for it.
+     *
+     * @var array<array-key, mixed>
+     */
+    public array $body = [] {
+        get {
+            $this->decodeJson();
+            return $this->body;
+        }
+        set {
+            $this->json = null;
+            $this->body = $value;
+        }
+    }
 
     /** Why a JSON body could not be decoded (json_last_error_msg()), null when it could or there was none: #[Body] answers 400 then. */
-    public ?string $bodyError = null;
+    public ?string $bodyError = null {
+        get {
+            $this->decodeJson();
+            return $this->bodyError;
+        }
+    }
+
+    /** Whether the JSON body was larger than $maxJsonBytes and so not decoded: #[Body] answers 413 then. */
+    public bool $bodyTooLarge = false {
+        get {
+            $this->decodeJson();
+            return $this->bodyTooLarge;
+        }
+    }
+
+    /** The largest JSON body that is decoded; App::handle() sets it from RequestOptions::$maxJsonBytes. */
+    public int $maxJsonBytes = 262_144;
+
+    /** The JSON body until it is first read */
+    private ?string $json = null;
 
     /** @var array<string, string> The request cookies, name => value. */
     public array $cookies = [];
@@ -127,14 +160,7 @@ class Request
             return $req;
         }
         if (self::isJson($contentType)) {
-            if ($body !== '') {
-                $data = json_decode($body, true);
-                if (is_array($data)) {
-                    $req->body = $data;
-                } elseif (json_last_error() !== JSON_ERROR_NONE) {
-                    $req->bodyError = json_last_error_msg();
-                }
-            }
+            $req->json = $body !== '' ? $body : null;
         } elseif ($form !== null) {
             $req->body = $form;
         } elseif (preg_match('#^application/x-www-form-urlencoded\s*(;|$)#i', trim($contentType)) === 1) {
@@ -142,6 +168,27 @@ class Request
             $req->body = $fields;
         }
         return $req;
+    }
+
+    private function decodeJson(): void
+    {
+        if ($this->json === null) {
+            return;
+        }
+        $json = $this->json;
+        $this->json = null;
+        if (strlen($json) > $this->maxJsonBytes) {
+            $this->bodyTooLarge = true;
+            $this->bodyError = "larger than {$this->maxJsonBytes} bytes";
+            return;
+        }
+
+        $data = json_decode($json, true);
+        if (is_array($data)) {
+            $this->body = $data;
+        } elseif (json_last_error() !== JSON_ERROR_NONE) {
+            $this->bodyError = json_last_error_msg();
+        }
     }
 
     /** @param string|null $rawBody Overrides php://input (which is always empty under a CLI test runner). */
