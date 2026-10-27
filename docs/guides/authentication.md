@@ -174,16 +174,16 @@ final class SessionController
     <label>
         Email
         <input type="email" name="email" value="{{ $model->email }}" required autocomplete="username">
-        @if (isset($errors['email']))
-            <span class="error">{{ $errors['email'] }}</span>
-        @endif
+        @foreach ($errors['email'] ?? [] as $message)
+            <span class="error">{{ $message }}</span>
+        @endforeach
     </label>
     <label>
         Password
         <input type="password" name="password" required autocomplete="current-password">
-        @if (isset($errors['password']))
-            <span class="error">{{ $errors['password'] }}</span>
-        @endif
+        @foreach ($errors['password'] ?? [] as $message)
+            <span class="error">{{ $message }}</span>
+        @endforeach
     </label>
     <button>Sign in</button>
 </form>

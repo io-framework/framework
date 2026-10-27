@@ -125,14 +125,14 @@ final class ArgumentResolver
         }
         $body = $req->body();
         if (!array_is_list($body)) {
-            throw new ValidationException(Message::ValidationFailed, ['body' => 'Expected a list.']);
+            throw new ValidationException(Message::ValidationFailed, ['body' => ['Expected a list.']]);
         }
         $validator = ($arg['validate'] ?? false) ? new Validator() : null;
         $items = [];
         $errors = [];
         foreach ($body as $index => $item) {
             if (!is_array($item)) {
-                $errors["$index"] = ['item' => 'Expected an object.'];
+                $errors["$index"] = ['item' => ['Expected an object.']];
                 continue;
             }
             $dto = new $class($item);
@@ -182,7 +182,7 @@ final class ArgumentResolver
                 return null;
             }
             if (isset($arg['enum'])) {
-                throw new ValidationException(Message::ValidationFailed, [$name => 'This value is required.']);
+                throw new ValidationException(Message::ValidationFailed, [$name => ['This value is required.']]);
             }
             settype($value, $type);
             return $value;

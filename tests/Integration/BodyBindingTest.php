@@ -20,7 +20,7 @@ final class BodyBindingTest extends IntegrationTestCase
         $res = $this->request('POST', '/body/required')->withJson(['qty' => 2])->send();
 
         $this->assertSame(422, $res->status());
-        $this->assertSame(['name' => 'This value is required.'], $res->json()['errors'] ?? null);
+        $this->assertSame(['name' => ['This value is required.']], $res->json()['errors'] ?? null);
 
         $this->request('POST', '/body/required')->withJson(['name' => 'Ada'])->send()->assertOk();
     }

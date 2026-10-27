@@ -43,11 +43,11 @@ private function find(string $code): Order
 The message passed to the constructor becomes `detail`; without one, `detail` is left out. `ValidationException` adds `errors`, field ⇒ message:
 
 ```php
-throw new ValidationException(errors: ['status' => 'The order is received; its next step is baking.']);
+throw new ValidationException(errors: ['status' => ['The order is received; its next step is baking.']]);
 ```
 
 ```json
-{"type":"about:blank","title":"Validation failed","status":422,"detail":"Validation failed","errors":{"status":"The order is received; its next step is baking."}}
+{"type":"about:blank","title":"Validation failed","status":422,"detail":"Validation failed","errors":{"status":["The order is received; its next step is baking."]}}
 ```
 
 ## Your own exceptions

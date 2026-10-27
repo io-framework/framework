@@ -37,7 +37,7 @@ through your app or plugin from PHPUnit.
 
 - Attribute-based routing and controllers (`#[Get]`/`#[Post]`/`#[Put]`/`#[Patch]`/`#[Delete]`)
 - Simple, reachability-based dependency injection via `#[Inject]` (no separate "service" attribute)
-- Request validation attributes (`#[NotBlank]`, `#[Email]`, `#[Length]`, `#[Regex]`, `#[OneOf]`, `#[SameAs]`), read as `$dto->isValid` / `$dto->errors`
+- Request validation attributes (`#[NotBlank]`, `#[Email]`, `#[Length]`, `#[Regex]`, `#[OneOf]`, `#[SameAs]`, `#[Date]`, `#[Before]`, `#[After]`, `#[Min]`, `#[Max]`, `#[Check]`), read as `$dto->isValid` / `$dto->errors`
 - A `FromArray` trait for `#[Body]`-bound DTOs, so their array-hydrating constructor never has to be
   hand-written
 - A unified `HttpException` hierarchy with RFC 9457 ("Problem Details for HTTP APIs") JSON error
@@ -427,9 +427,18 @@ final class NewStaffMember
 `#[OneOf]` compares strictly (`'1'` is not `1`) and, like `#[Email]`, `#[Regex]` and `#[Length]`, skips `null`; `#[SameAs]` compares
 against the named property of the same DTO.
 
+More rules: `#[Date]` (a real date in `format:`, `'Y-m-d'` by default), `#[Before]` and `#[After]` (with a `date:`
+such as `'today'` or `'-18 years'`), `#[Min]` and `#[Max]` (numbers), and `#[Check]` for what needs the app: it
+names a class implementing `Io\Validation\Checker`, which comes from the container with its `#[Inject]` services
+(a code that has to exist in the database). Every rule takes `message:` for its own text, with the same
+`{placeholders}` (`{min}`, `{max}`, `{date}`, ...). An own rule is an attribute implementing `Io\Validation\Rule`.
+
+Every rule that fails reports its message, in the order the rules are written, so `errors` maps each field
+to a list.
+
 A failing DTO throws `ValidationException`, which the default exception handler turns into a `422`
 RFC 9457 Problem Details response, with per-field errors under `errors`:
-`{"type": "about:blank", "title": "Validation failed", "status": 422, "detail": "Validation failed", "errors": {"email": "..."}}`.
+`{"type": "about:blank", "title": "Validation failed", "status": 422, "detail": "Validation failed", "errors": {"email": ["..."]}}`.
 See [Exception Handling](#exception-handling). The messages are English by default; a plugin can bind
 `Io\Validation\Messages` to translate them (the `io-i18n` plugin does, see [Plugins](#plugins)).
 
@@ -526,8 +535,8 @@ public function login(
 }
 ```
 
-`errors` is `field => message`, attribute failures first and `fail()` entries after them; a later `fail()`
-for the same field replaces the earlier one. Input keys named `errors`, `isValid` or `failures` are never
+`errors` is `field => list of messages`, attribute failures first and `fail()` entries after them; a second
+`fail()` for the same field adds its message. Input keys named `errors`, `isValid` or `failures` are never
 hydrated, and the two computed properties never appear in OpenAPI schemas or redacted logs.
 
 ---

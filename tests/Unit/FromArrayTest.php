@@ -31,7 +31,7 @@ final class FromArrayTest extends TestCase
         $dto = new FromArrayDTO(['role' => 'root']);
 
         $this->assertFalse($dto->isValid);
-        $this->assertSame(['name' => 'This value should not be blank.', 'role' => 'This value should be one of: guest, user.'], $dto->errors);
+        $this->assertSame(['name' => ['This value should not be blank.'], 'role' => ['This value should be one of: guest, user.']], $dto->errors);
 
         $dto->name = 'Ada';
         $dto->role = 'user';
@@ -39,14 +39,14 @@ final class FromArrayTest extends TestCase
         $this->assertSame([], $dto->errors);
     }
 
-    public function testFailAddsAFailureTheAttributesCannotKnowAboutAndTheLastOnePerFieldWins(): void
+    public function testFailAddsFailuresTheAttributesCannotKnowAboutToTheFieldsMessages(): void
     {
         $dto = new FromArrayDTO(['name' => 'Ada']);
         $this->assertTrue($dto->isValid);
 
         $this->assertSame($dto, $dto->fail('name', 'Taken.')->fail('name', 'Really taken.'));
         $this->assertFalse($dto->isValid);
-        $this->assertSame(['name' => 'Really taken.'], $dto->errors);
+        $this->assertSame(['name' => ['Taken.', 'Really taken.']], $dto->errors);
     }
 
     public function testInputCannotTouchTheValidationProperties(): void
@@ -119,7 +119,7 @@ final class FromArrayTest extends TestCase
     public function testAWritablePropertyWithoutADefaultLeftUnsetIsRequired(): void
     {
         $dto = new \Io\Tests\Fixtures\DTO\RequiredNameDTO(['qty' => 2]);
-        $this->assertSame(['name' => 'This value is required.'], $dto->errors);
+        $this->assertSame(['name' => ['This value is required.']], $dto->errors);
 
         $this->assertTrue((new \Io\Tests\Fixtures\DTO\RequiredNameDTO(['name' => 'Ada']))->isValid);
     }
@@ -139,8 +139,8 @@ final class FromArrayTest extends TestCase
 
         $this->assertSame(OrderStatus::Open, $dto->status);
         $this->assertSame([
-            'status' => 'This value should be one of: open, done.',
-            'priority' => 'This value should be one of: 1, 2.',
+            'status' => ['This value should be one of: open, done.'],
+            'priority' => ['This value should be one of: 1, 2.'],
         ], $dto->errors);
     }
 
@@ -149,10 +149,10 @@ final class FromArrayTest extends TestCase
         $dto = new ShipmentDTO(['to' => ['city' => 'Freiburg'], 'via' => ['city' => '']]);
 
         $this->assertSame('Freiburg', $dto->to->city);
-        $this->assertSame(['via.city' => 'This value should not be blank.'], $dto->errors);
+        $this->assertSame(['via.city' => ['This value should not be blank.']], $dto->errors);
 
-        $this->assertSame(['to' => 'This value is required.'], (new ShipmentDTO([]))->errors);
-        $this->assertSame(['to' => 'Expected a value of type ' . CityDTO::class . '.'], (new ShipmentDTO(['to' => 'Freiburg']))->errors);
+        $this->assertSame(['to' => ['This value is required.']], (new ShipmentDTO([]))->errors);
+        $this->assertSame(['to' => ['Expected a value of type ' . CityDTO::class . '.']], (new ShipmentDTO(['to' => 'Freiburg']))->errors);
     }
 
     public function testAListOfDtosOrEnumsIsBuiltAsItsVarTagSays(): void
@@ -163,9 +163,9 @@ final class FromArrayTest extends TestCase
         $this->assertContainsOnlyInstancesOf(CityDTO::class, $dto->stops);
         $this->assertSame([Priority::Low, Priority::High], $dto->levels);
         $this->assertSame([
-            'stops.2' => 'Expected a value of type ' . CityDTO::class . '.',
-            'levels.2' => 'This value should be one of: 1, 2.',
-            'stops.1.city' => 'This value should not be blank.',
+            'stops.2' => ['Expected a value of type ' . CityDTO::class . '.'],
+            'levels.2' => ['This value should be one of: 1, 2.'],
+            'stops.1.city' => ['This value should not be blank.'],
         ], $dto->errors);
     }
 

@@ -2,54 +2,56 @@
 
 namespace Io;
 
+use ReflectionAttribute;
 use ReflectionClass;
 use ReflectionProperty;
-use Io\Attributes\{NotBlank, Email, Length, Regex, OneOf, SameAs};
-use Io\Validation\Messages;
+use Io\Validation\{Messages, Rule};
 
 /**
- * Validates a DTO's public properties against #[NotBlank]/#[Email]/#[Length]/
- * #[Regex], #[OneOf], #[SameAs]. The attribute set per class is reflected once and cached, so
- * validating the same DTO class on every request costs no reflection.
+ * Validates a DTO's public properties against their validation attributes: every attribute that implements
+ * Rule (#[NotBlank], #[Email], #[Length], #[Regex], #[OneOf], #[SameAs], #[Date], #[Before], #[After], #[Min],
+ * #[Max], #[Check], or one of the app's own). The rules per class are reflected once and cached, so validating
+ * the same DTO class on every request costs no reflection.
  */
 class Validator
 {
-    /** @var array<class-string, list<array{prop: ReflectionProperty, rules: list<NotBlank|Email|Length|Regex|OneOf|SameAs>}>> */
+    /** @var array<class-string, list<array{prop: ReflectionProperty, rules: list<Rule>}>> */
     private static array $rulesByClass = [];
 
-    /** @return array<string, string> field => message (the last failing rule wins, in NotBlank, Email, Length, Regex, OneOf, SameAs order). */
+    /** @return array<string, list<string>> field => the message of every rule that failed, in the order the rules are written */
     #[\NoDiscard('Ignoring the returned errors means validation never actually gets enforced.')]
     public function validate(object $dto): array
     {
         $errors = [];
         foreach (self::rulesFor($dto) as ['prop' => $prop, 'rules' => $rules]) {
-            $name = $prop->getName();
             $value = $prop->isInitialized($dto) ? $prop->getValue($dto) : null;
 
             foreach ($rules as $rule) {
-                $message = match (true) {
-                    $rule instanceof NotBlank => self::isBlank($value) ? $this->message('This value should not be blank.') : null,
-                    $rule instanceof Email => $value !== null && !filter_var($value, FILTER_VALIDATE_EMAIL) ? $this->message('This value is not a valid email address.') : null,
-                    $rule instanceof Length => $this->lengthError($value, $rule),
-                    $rule instanceof Regex => $value !== null && !self::matches($rule->pattern, $value) ? $this->message('This value does not match the required format.') : null,
-                    $rule instanceof OneOf => $value !== null && !in_array($value, $rule->values, true) ? $this->message('This value should be one of: {choices}.', ['choices' => implode(', ', array_map('strval', $rule->values))]) : null,
-                    $rule instanceof SameAs => $value !== self::propertyValue($dto, $rule->property) ? $this->message('This value should match {field}.', ['field' => $rule->property]) : null,
-                };
-                if ($message !== null) {
-                    $errors[$name] = $message;
+                if (!$rule->passes($value, $dto)) {
+                    $errors[$prop->getName()][] = $this->message($rule->message($value), $rule->params());
                 }
             }
         }
         return $errors;
     }
 
-    /** A string or number matches by its text; a list, object or bool never matches (it used to slip through unchecked). */
-    private static function matches(string $pattern, mixed $value): bool
+    /**
+     * Lists of messages per field, put together: $b's messages follow $a's.
+     * @param array<string, list<string>> ...$lists
+     * @return array<string, list<string>>
+     */
+    public static function merge(array ...$lists): array
     {
-        return (is_string($value) || is_int($value) || is_float($value)) && preg_match($pattern, (string) $value) === 1;
+        $merged = [];
+        foreach ($lists as $list) {
+            foreach ($list as $field => $messages) {
+                $merged[$field] = [...$merged[$field] ?? [], ...$messages];
+            }
+        }
+        return $merged;
     }
 
-    /** @return list<array{prop: ReflectionProperty, rules: list<NotBlank|Email|Length|Regex|OneOf|SameAs>}> */
+    /** @return list<array{prop: ReflectionProperty, rules: list<Rule>}> */
     private static function rulesFor(object $dto): array
     {
         $class = get_class($dto);
@@ -59,12 +61,10 @@ class Validator
 
         $entries = [];
         foreach ((new ReflectionClass($dto))->getProperties(ReflectionProperty::IS_PUBLIC) as $prop) {
-            $rules = [];
-            foreach ([NotBlank::class, Email::class, Length::class, Regex::class, OneOf::class, SameAs::class] as $attribute) {
-                foreach ($prop->getAttributes($attribute) as $attr) {
-                    $rules[] = $attr->newInstance();
-                }
-            }
+            $rules = array_map(
+                fn (ReflectionAttribute $attribute) => $attribute->newInstance(),
+                $prop->getAttributes(Rule::class, ReflectionAttribute::IS_INSTANCEOF),
+            );
             if ($rules !== []) {
                 $entries[] = ['prop' => $prop, 'rules' => $rules];
             }
@@ -72,33 +72,8 @@ class Validator
         return self::$rulesByClass[$class] = $entries;
     }
 
-    /** The named public property's value, null when it is uninitialized or absent. */
-    private static function propertyValue(object $dto, string $property): mixed
-    {
-        return $dto->{$property} ?? null;
-    }
-
-    private static function isBlank(mixed $value): bool
-    {
-        return $value === null || (is_string($value) && trim($value) === '') || (is_array($value) && $value === []);
-    }
-
-    /** Null passes, like #[Email]/#[Regex]/#[OneOf]: an optional field may have a minimum length; #[NotBlank] requires it. */
-    private function lengthError(mixed $value, Length $rule): ?string
-    {
-        if ($value === null) {
-            return null;
-        }
-        $len = is_string($value) ? mb_strlen($value) : 0;
-        return match (true) {
-            $len < $rule->min => $this->message('This value is too short. Minimum length is {min}.', ['min' => $rule->min]),
-            $len > $rule->max => $this->message('This value is too long. Maximum length is {max}.', ['max' => $rule->max]),
-            default => null,
-        };
-    }
-
     /**
-     * Through the container-bound Messages (a plugin, e.g. i18n) when there is one, else the English text with its placeholders filled in.
+     * Through the container-bound Messages (a plugin, e.g. i18n) when there is one, else the text with its placeholders filled in.
      * @param array<string, scalar> $params
      */
     private function message(string $text, array $params = []): string

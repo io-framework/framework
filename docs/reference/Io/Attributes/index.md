@@ -7,10 +7,14 @@ generated: true
 
 ## Types
 
+- [`After`](After.md) · class: Validation: the date must lie after $date, which takes what DateTimeImmutable takes ('today', '-18 years', '2000-01-01').
 - [`Authenticated`](Authenticated.md) · class: Requires a valid, decoded JWT (see useJwt()) for this route, on the class (every route on it, also those of subclasses) or a single method.
+- [`Before`](Before.md) · class: Validation: the date must lie before $date, which takes what DateTimeImmutable takes ('today', '-18 years', '2000-01-01').
 - [`Body`](Body.md) · class: Binds the request body to a method parameter: a DTO class (hydrated via its array constructor, see FromArray, then validated), or, for an `array` parameter with `of: OrderLine::class`, a list of them, one per element.
+- [`Check`](Check.md) · class: Validation: the Checker $checker must pass the value, for what needs the app (a code that has to exist in the database).
 - [`Claims`](Claims.md) · class: Binds the signed-in user's JWT claims (`$req->jwt`) to a parameter typed with a FromArray DTO: `#[Claims] StaffClaims $staff`.
 - [`Controller`](Controller.md) · class: Marks a class as an HTTP controller, with an optional path prefix for every route on it (e.g.
+- [`Date`](Date.md) · class: Validation: a string property must be a real date in $format (a date() format, 'Y-m-d' by default): "2026-02-30" fails.
 - [`Delete`](Delete.md) · class: Routes a controller method for HTTP DELETE.
 - [`Email`](Email.md) · class: Validation: a non-null property must be a syntactically valid email address.
 - [`FileFormatter`](FileFormatter.md) · class: Sends the route's return value as a raw body instead of JSON: return an SplFileInfo to send a file from disk, a string to send that text.
@@ -23,7 +27,9 @@ generated: true
 - [`Length`](Length.md) · class: Validation: a string property's length (mb_strlen) must be within [$min, $max].
 - [`ListOf`](ListOf.md) · class: The element type of an `array` property: a class, an enum or a scalar keyword (int, string, float, bool), as a list, or with $map as values by string key.
 - [`Manager`](Manager.md) · class: Marks a class as a CLI task manager, with an optional name prefix ("prefix:task") for every #[Task] on it.
+- [`Max`](Max.md) · class: Validation: a number must be at most $value.
 - [`Middleware`](Middleware.md) · class: Attaches a MiddlewareBase subclass to a controller class (runs for every route on it, before any method-level middleware) or one route method: `#[Middleware(CartCookie::class)]`.
+- [`Min`](Min.md) · class: Validation: a number must be at least $value.
 - [`NoGzip`](NoGzip.md) · class: Opts a controller class, or one specific route method, out of gzip response compression (see Response::send()/CompressionOptions), e.g.
 - [`NotBlank`](NotBlank.md) · class: Validation: the property must not be null, an empty/whitespace-only string, or an empty array.
 - [`OneOf`](OneOf.md) · class: Validation: a non-null property value must be one of $values (strict comparison).

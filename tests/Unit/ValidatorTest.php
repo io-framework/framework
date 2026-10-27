@@ -39,7 +39,7 @@ final class ValidatorTest extends TestCase
         $dto = new ContactDTO();
         $dto->email = 'not-an-email';
         $errors = $this->validator->validate($dto);
-        $this->assertEquals('This value is not a valid email address.', $errors['email']);
+        $this->assertSame(['This value is not a valid email address.'], $errors['email']);
     }
 
     public function testEmailAcceptsAValidAddress(): void
@@ -63,7 +63,7 @@ final class ValidatorTest extends TestCase
         $dto = new AccountDTO();
         $dto->username = 'ab';
         $errors = $this->validator->validate($dto);
-        $this->assertStringContainsString('too short', $errors['username']);
+        $this->assertStringContainsString('too short', $errors['username'][0]);
     }
 
     public function testLengthRejectsTooLong(): void
@@ -71,7 +71,7 @@ final class ValidatorTest extends TestCase
         $dto = new AccountDTO();
         $dto->username = 'abcdef';
         $errors = $this->validator->validate($dto);
-        $this->assertStringContainsString('too long', $errors['username']);
+        $this->assertStringContainsString('too long', $errors['username'][0]);
     }
 
     public function testLengthSkipsNullSoAnOptionalFieldCanHaveAMinimum(): void
@@ -95,7 +95,7 @@ final class ValidatorTest extends TestCase
         $dto = new AccountDTO();
         $dto->pin = '123';
         $errors = $this->validator->validate($dto);
-        $this->assertStringContainsString('does not match', $errors['pin']);
+        $this->assertStringContainsString('does not match', $errors['pin'][0]);
     }
 
     public function testRegexAcceptsMatchingValue(): void
@@ -156,8 +156,8 @@ final class ValidatorTest extends TestCase
 
         $errors = $this->validator->validate($dto);
 
-        $this->assertSame('This value should be one of: guest, user, admin.', $errors['role']);
-        $this->assertSame('This value should be one of: 1, 2.', $errors['level']);
+        $this->assertSame(['This value should be one of: guest, user, admin.'], $errors['role']);
+        $this->assertSame(['This value should be one of: 1, 2.'], $errors['level']);
 
         $dto->role = null;
         $dto->level = 2;
@@ -171,7 +171,7 @@ final class ValidatorTest extends TestCase
         $dto->password = 'secret';
         $dto->passwordConfirm = 'secrets';
 
-        $this->assertSame('This value should match password.', $this->validator->validate($dto)['passwordConfirm']);
+        $this->assertSame(['This value should match password.'], $this->validator->validate($dto)['passwordConfirm']);
 
         $dto->passwordConfirm = 'secret';
         $this->assertArrayNotHasKey('passwordConfirm', $this->validator->validate($dto));
@@ -186,20 +186,14 @@ final class ValidatorTest extends TestCase
         $this->assertArrayHasKey('name', $errors);
     }
 
-    public function testLastMatchingRuleOnTheSameFieldWinsWhenMultipleFail(): void
+    public function testEveryFailingRuleOnAFieldReportsItsMessageInTheOrderTheRulesAreWritten(): void
     {
-        // Io\Validator keeps one message per field (a plain string, not
-        // an accumulated list): it checks NotBlank, then Email, then Length,
-        // then Regex, in that fixed order, so when several rules on the
-        // same property fail, whichever is checked last overwrites earlier
-        // messages. Here Length (checked after NotBlank) wins.
         $dto = new MultiRuleDTO();
-        $dto->code = ''; // fails both #[NotBlank] and #[Length(min:3)]
+        $dto->code = ''; // fails both #[NotBlank] and #[Length(min: 3)]
 
-        $errors = $this->validator->validate($dto);
-
-        $this->assertArrayHasKey('code', $errors);
-        $this->assertIsString($errors['code']);
-        $this->assertStringContainsString('too short', $errors['code']);
+        $this->assertSame(
+            ['This value should not be blank.', 'This value is too short. Minimum length is 3.'],
+            $this->validator->validate($dto)['code'],
+        );
     }
 }

@@ -25,7 +25,7 @@ protected array $errors = [];
 
 **Type** `array<array-key, mixed>`
 
-field => message; for a #[Body(of: ...)] collection, index => {field => message}.
+field => messages; for a #[Body(of: ...)] collection, index => {field => messages}.
 
 ## Methods
 

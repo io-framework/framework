@@ -121,7 +121,7 @@ When the DTO is not valid, the method is not called. The request answers `422` w
 
 ```text
 $ curl -X POST localhost:8080/v1/tokens -H 'Content-Type: application/json' -d '{"email": "ben@", "password": ""}'
-{"type":"about:blank","title":"Validation failed","status":422,"detail":"Validation failed","errors":{"email":"This value is not a valid email address.","password":"This value should not be blank."}}
+{"type":"about:blank","title":"Validation failed","status":422,"detail":"Validation failed","errors":{"email":["This value is not a valid email address."],"password":["This value should not be blank."]}}
 ```
 
 A JSON body that doesn't parse answers `400 Bad Request` before any DTO is built; `$req->bodyError` holds the reason.
@@ -257,7 +257,7 @@ final class StockApi
 }
 ```
 
-Each element becomes a `StockCount` and is validated on its own. The errors are reported per index: `{"errors": {"1": {"stock": "…"}}}`. A body that is a single object instead of a list answers `422` with a `body` error, and an element that is no object (`[1, "two"]`) with an error under its index.
+Each element becomes a `StockCount` and is validated on its own. The errors are reported per index: `{"errors": {"1": {"stock": ["…"]}}}`. A body that is a single object instead of a list answers `422` with a `body` error, and an element that is no object (`[1, "two"]`) with an error under its index.
 
 ## Validation attributes
 
@@ -271,8 +271,12 @@ The rules are attributes on the DTO's public properties:
 | `#[Regex('/^\d{4}-\d{2}-\d{2}$/')]` | the value doesn't match; numbers match by their text, `null` passes, arrays and booleans never match |
 | `#[OneOf(['bread', 'rolls', 'pastry', 'cake'])]` | the value is not `null` and not one of the values, compared strictly (`'1'` is not `1`) |
 | `#[SameAs('password')]` | the value differs from the named property, e.g. a password confirmation |
+| `#[Date]`, with `format:` (`'Y-m-d'` by default) | the value is not `null` and no real date in the format: `2026-02-30` fails |
+| `#[Before(date: 'today')]`, `#[After(date: '2000-01-01')]` | the date is not before or after the given one, which takes what `DateTimeImmutable` takes (`'-18 years'`); a value that is no date passes, `#[Date]` reports it |
+| `#[Min(value: 1)]`, `#[Max(value: 9)]` | the number is smaller or larger; `null` and anything that is no number pass |
+| `#[Check(checker: KnownCompany::class)]` | the [`Checker`](../reference/Io/Validation/Checker.md) says no. It comes from the container and takes its services through `#[Inject]`, for checks against the database |
 
-A property can carry several rules; when more than one fails, `errors` holds the message of the last one in the order of the table. The messages are English. A plugin can translate them by binding [`Io\Validation\Messages`](../reference/Io/Validation/Messages.md) in the container, as `io/i18n` does.
+Every rule takes `message:` for its own text, which may use the rule's placeholders (`{min}`, `{max}`, `{date}`, `{field}`, `{choices}`). A property can carry several rules, and every one that fails reports its message: `errors` maps each field to the list of them, in the order the rules are written. An attribute of your own that implements [`Io\Validation\Rule`](../reference/Io/Validation/Rule.md) is a rule too. The messages are English. A plugin can translate them by binding [`Io\Validation\Messages`](../reference/Io/Validation/Messages.md) in the container, as `io/i18n` does.
 
 The bakery's checkout form (from `src/Requests/CheckoutForm.php`) combines several:
 
@@ -359,12 +363,12 @@ final class SessionController
 
 `Flash` and `Translator` come from the [Flash](https://github.com/io-framework/flash) and [I18n](https://github.com/io-framework/i18n) plugins.
 
-`#[Body(validate: false)]` binds the DTO without answering `422` first, so the method sees an invalid one too. This is the shape for HTML forms: the page is shown again with the messages next to the fields (see [Views](views.md#forms)). A `View` returned while the bound DTO is invalid answers with status `422`, so a test or a script sees the failed submission. The same works with `new LoginForm($req->body())` when the DTO is built by hand, without the `422`. `errors` maps each field to one message, the attribute rules first and `fail()` entries after them; a later `fail()` for the same field replaces the earlier one. `errors` and `isValid` never appear in the [OpenAPI](openapi.md) schemas or in [redacted logs](logging.md#redacting-sensitive-values).
+`#[Body(validate: false)]` binds the DTO without answering `422` first, so the method sees an invalid one too. This is the shape for HTML forms: the page is shown again with the messages next to the fields (see [Views](views.md#forms)). A `View` returned while the bound DTO is invalid answers with status `422`, so a test or a script sees the failed submission. The same works with `new LoginForm($req->body())` when the DTO is built by hand, without the `422`. `errors` maps each field to a list of messages, the attribute rules first and `fail()` entries after them; a second `fail()` for the same field adds its message. `errors` and `isValid` never appear in the [OpenAPI](openapi.md) schemas or in [redacted logs](logging.md#redacting-sensitive-values).
 
 To answer `422` yourself from anywhere, throw a [`ValidationException`](../reference/Io/Exceptions/ValidationException.md):
 
 ```php
-throw new ValidationException(errors: ['status' => 'The order is received; its next step is baking.']);
+throw new ValidationException(errors: ['status' => ['The order is received; its next step is baking.']]);
 ```
 
 See also: [`Param`](../reference/Io/Attributes/Param.md), [`Query`](../reference/Io/Attributes/Query.md), [`Body`](../reference/Io/Attributes/Body.md), [`FromArray`](../reference/Io/FromArray.md), [`Validator`](../reference/Io/Validator.md), [Errors](errors.md).

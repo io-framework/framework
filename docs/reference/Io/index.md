@@ -37,7 +37,7 @@ generated: true
 - [`RequestContext`](RequestContext.md) · class: The current request's correlation id (Request::$id), held as a container singleton for the duration of one request so Logger can stamp it onto every line without call sites passing it around.
 - [`RouteCompiler`](RouteCompiler.md) · final class: Reflects #[Controller]/#[Manager] classes once into the plain-array route/ task plans Router dispatches against (and FileSystem caches).
 - [`Router`](Router.md) · class: Matches a request against the compiled route plans (RouteCompiler, cached by FileSystem) and runs the matched controller method: access checks, per-route middleware, argument binding, and rendering of the result.
-- [`Validator`](Validator.md) · class: Validates a DTO's public properties against #[NotBlank]/#[Email]/#[Length]/ #[Regex], #[OneOf], #[SameAs].
+- [`Validator`](Validator.md) · class: Validates a DTO's public properties against their validation attributes: every attribute that implements Rule (#[NotBlank], #[Email], #[Length], #[Regex], #[OneOf], #[SameAs], #[Date], #[Before], #[After], #[Min], #[Max], #[Check], or one of the app's own).
 - [`ViewAssets`](ViewAssets.md) · final class: Discovers each view's sibling .css/.js (Home.php -> Home.css/Home.js, any depth under the views directory), scopes the CSS to that view with a `[data-view="Name"]` nesting wrapper, and content-hashes the result into cache-busted filenames.
 
 ## Functions

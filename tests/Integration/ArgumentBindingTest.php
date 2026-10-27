@@ -93,7 +93,7 @@ final class ArgumentBindingTest extends IntegrationTestCase
         $this->assertSame(['priority' => 'This value should be one of: 1, 2.'], $output['errors']);
 
         $output = json_decode($this->dispatch('GET', '/argbinding/enum'), true);
-        $this->assertSame(['status' => 'This value is required.'], $output['errors']);
+        $this->assertSame(['status' => ['This value is required.']], $output['errors']);
     }
 
     public function testANonNullableParameterNothingBindsFailsTheBoot(): void

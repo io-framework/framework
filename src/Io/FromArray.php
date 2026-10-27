@@ -16,17 +16,26 @@ namespace Io;
  *
  * Validation is read straight off the DTO: `$dto->isValid` and `$dto->errors`
  * apply the rule attributes on every read, and `fail()` adds a failure a
- * controller found itself (a taken email, say) to the same list. A writable
- * property without a default that the data left unset is "This value is required.".
+ * controller found itself (a taken email, say) to the same list. Every failing
+ * rule reports its message, so a field has a list of them. A writable property
+ * without a default that the data left unset is "This value is required.".
  */
 trait FromArray
 {
-    /** @var array<string, string> Failures added through fail(). */
+    /** @var array<string, list<string>> Failures added through fail(). */
     private array $failures = [];
 
-    /** @var array<string, string> field => message; attribute rules first, then fail() entries, required fields left unset, and nested DTOs' errors ("address.city"). */
+    /**
+     * @var array<string, list<string>> field => messages; attribute rules first, then fail() entries, required fields
+     * left unset, and nested DTOs' errors ("address.city").
+     */
     public array $errors {
-        get => (new Validator())->validate($this) + $this->failures + $this->missingRequired() + $this->nestedErrors();
+        get => Validator::merge(
+            (new Validator())->validate($this),
+            $this->failures,
+            $this->missingRequired(),
+            $this->nestedErrors(),
+        );
     }
 
     public bool $isValid {
@@ -39,10 +48,10 @@ trait FromArray
         $this->hydrateFromArray($data);
     }
 
-    /** Records a failure the attributes can't know about; a later one for the same field replaces the earlier. */
+    /** Records a failure the attributes can't know about; it joins the field's other messages. */
     public function fail(string $field, string $message): static
     {
-        $this->failures[$field] = $message;
+        $this->failures[$field][] = $message;
         return $this;
     }
 
@@ -64,7 +73,7 @@ trait FromArray
             [$fits, $value, $message] = self::fitting($property->getType(), $value);
             if (!$fits) {
                 // Left at its default, and a 422: never cast ("false" is no true, 2.7 no 2)
-                $this->failures[$key] = $message ?? 'Expected a value of type ' . $property->getType() . '.';
+                $this->failures[$key][] = $message ?? 'Expected a value of type ' . $property->getType() . '.';
                 continue;
             }
             if (is_array($value)) {
@@ -73,7 +82,7 @@ trait FromArray
             try {
                 $this->$key = $value;
             } catch (\TypeError) {
-                $this->failures[$key] = 'Expected a value of type ' . $property->getType() . '.';
+                $this->failures[$key][] = 'Expected a value of type ' . $property->getType() . '.';
             }
         }
     }
@@ -97,7 +106,7 @@ trait FromArray
             if ($fits) {
                 $result[$index] = $converted;
             } else {
-                $this->failures[$property->getName() . ".$index"] = $message ?? "Expected a value of type {$class}.";
+                $this->failures[$property->getName() . ".$index"][] = $message ?? "Expected a value of type {$class}.";
             }
         }
         return array_is_list($items) ? array_values($result) : $result;
@@ -193,7 +202,7 @@ trait FromArray
 
     /**
      * The errors of nested FromArray DTOs, a property's or a list's, under "property.field" or "property.index.field".
-     * @return array<string, string>
+     * @return array<string, list<string>>
      */
     private function nestedErrors(): array
     {
@@ -208,8 +217,8 @@ trait FromArray
                     continue;
                 }
                 $prefix = $property->getName() . ($index === '' ? '' : ".$index");
-                foreach ($item->errors as $field => $message) {
-                    $errors["$prefix.$field"] = is_string($message) ? $message : '';
+                foreach ($item->errors as $field => $messages) {
+                    $errors["$prefix.$field"] = array_values(array_filter((array) $messages, is_string(...)));
                 }
             }
         }
@@ -218,7 +227,8 @@ trait FromArray
 
     /**
      * A publicly writable property without a default that nothing set: required, and reading it would throw.
-     * @return array<string, string>
+     * A value the data had but that didn't fit already failed, so it isn't reported a second time.
+     * @return array<string, list<string>>
      */
     private function missingRequired(): array
     {
@@ -226,8 +236,8 @@ trait FromArray
         $excludes = $this->fromArrayExcludes();
         foreach ((new \ReflectionObject($this))->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
             $name = $property->getName();
-            if (!$property->isVirtual() && self::isWritableFromInput($this, $name) && !in_array($name, $excludes, true) && !$property->isInitialized($this)) {
-                $missing[$name] = 'This value is required.';
+            if (!$property->isVirtual() && self::isWritableFromInput($this, $name) && !in_array($name, $excludes, true) && !$property->isInitialized($this) && !isset($this->failures[$name])) {
+                $missing[$name] = ['This value is required.'];
             }
         }
         return $missing;

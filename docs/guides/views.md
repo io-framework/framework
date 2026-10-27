@@ -382,16 +382,16 @@ final class LoginForm
     <label>
         Email
         <input type="email" name="email" value="{{ $model->email }}" required>
-        @if (isset($errors['email']))
-            <small>{{ $errors['email'] }}</small>
-        @endif
+        @foreach ($errors['email'] ?? [] as $message)
+            <small>{{ $message }}</small>
+        @endforeach
     </label>
     <label>
         Password
         <input type="password" name="password" required>
-        @if (isset($errors['password']))
-            <small>{{ $errors['password'] }}</small>
-        @endif
+        @foreach ($errors['password'] ?? [] as $message)
+            <small>{{ $message }}</small>
+        @endforeach
     </label>
     <button>Sign in</button>
 </form>

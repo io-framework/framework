@@ -24,8 +24,9 @@ the request, and those are the DTO's own state.
 
 Validation is read straight off the DTO: `$dto->isValid` and `$dto->errors`
 apply the rule attributes on every read, and `fail()` adds a failure a
-controller found itself (a taken email, say) to the same list. A writable
-property without a default that the data left unset is "This value is required.".
+controller found itself (a taken email, say) to the same list. Every failing
+rule reports its message, so a field has a list of them. A writable property
+without a default that the data left unset is "This value is required.".
 
 ## Properties
 
@@ -35,9 +36,9 @@ property without a default that the data left unset is "This value is required."
 public array $errors { get; }
 ```
 
-**Type** `array<string, string>`
+**Type** `array<string, list<string>>`
 
-field => message; attribute rules first, then fail() entries, required fields left unset, and nested DTOs' errors ("address.city").
+field => messages; attribute rules first, then fail() entries, required fields left unset, and nested DTOs' errors ("address.city").
 
 ### $isValid
 
@@ -63,7 +64,7 @@ public function __construct(array $data = [])
 public function fail(string $field, string $message): static
 ```
 
-Records a failure the attributes can't know about; a later one for the same field replaces the earlier.
+Records a failure the attributes can't know about; it joins the field's other messages.
 
 **Parameters**
 

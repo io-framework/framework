@@ -8,7 +8,7 @@ use Io\Enums\Message;
 /** HTTP 422: field-level validation errors, exposed as the RFC 9457 extension member 'errors'. */
 class ValidationException extends HttpException
 {
-    /** @var array<array-key, mixed> field => message; for a #[Body(of: ...)] collection, index => {field => message}. */
+    /** @var array<array-key, mixed> field => messages; for a #[Body(of: ...)] collection, index => {field => messages}. */
     protected array $errors = [];
 
     /**
