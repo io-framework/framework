@@ -209,7 +209,7 @@ class App
     }
 
     /**
-     * Decodes a bearer token from JWTOptions::$header (or, as a fallback, the JWTOptions::$cookieName cookie) into $req->jwt.
+     * Decodes a bearer token from JWTOptions::$header (or, as a fallback, the JWTOptions::$cookieName cookie) into $req->principal.
      * A cookie the browser sends on its own needs CSRF protection: with a cookie name but no CsrfOptions::$secret,
      * every request fails until one is configured, instead of quietly accepting cross-site requests.
      */
@@ -225,11 +225,11 @@ class App
                 $cookie = $cookieName !== null ? ($req->cookies[$cookieName] ?? null) : null;
                 if ($cookie !== null) {
                     $payload = JWT::decode($cookie);
-                    $req->jwtFromCookie = $payload !== null;
+                    $req->principalFromCookie = $payload !== null;
                 }
             }
             if ($payload !== null) {
-                $req->jwt = $payload;
+                $req->principal = $payload;
             }
             return $next($req, $res);
         });

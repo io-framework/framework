@@ -15,8 +15,8 @@ namespace Io;
 interface PermissionProvider
 {
     /**
-     * True if $jwt (the current request's decoded JWT payload, i.e.
-     * Request::$jwt; shape entirely app-defined, see JWT::encode())
+     * True if $jwt (the current request's principal, i.e.
+     * Request::$principal: a JWT payload or a session's claims, shape app-defined)
      * currently holds $permission.
      */
     public function hasPermission(mixed $jwt, string $permission): bool;

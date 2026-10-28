@@ -80,10 +80,10 @@ final class ArgumentResolver
     {
         $class = $arg['class'] ?? null;
         $optional = ($arg['nullable'] ?? false) === true;
-        if ($req->jwt === null || !is_string($class) || !class_exists($class)) {
+        if ($req->principal === null || !is_string($class) || !class_exists($class)) {
             return $optional ? null : throw new UnauthorizedException();
         }
-        $claims = new $class($req->jwt);
+        $claims = new $class($req->principal);
         if (self::errors($claims, new Validator()) !== []) {
             return $optional ? null : throw new UnauthorizedException();
         }

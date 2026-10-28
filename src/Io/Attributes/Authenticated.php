@@ -5,10 +5,11 @@ namespace Io\Attributes;
 use Attribute;
 
 /**
- * Requires a valid, decoded JWT (see useJwt()) for this route, on the
+ * Requires a signed-in principal (a JWT, see useJwt(), or a session
+ * middleware's `$req->principal`) for this route, on the
  * class (every route on it, also those of subclasses) or a single method.
  * The route's access check throws Io\Exceptions\UnauthorizedException
- * when $req->jwt is null; App's default handler for that exception decides between
+ * when $req->principal is null; App's default handler for that exception decides between
  * a redirect to JWTOptions::$loginRedirectUrl (for a page navigation) and
  * a plain 401 Problem Details response (see its own doc).
  *

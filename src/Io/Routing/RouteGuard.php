@@ -31,9 +31,9 @@ final class RouteGuard
     {
         $unsafe = in_array(strtoupper($httpMethod), self::CSRF_METHODS, true);
         // Without the CSRF check a cookie proves nothing: any page could have made the browser send it
-        if ($unsafe && ($route['skipCsrf'] ?? false) && $req->jwtFromCookie) {
-            $req->jwt = null;
-            $req->jwtFromCookie = false;
+        if ($unsafe && ($route['skipCsrf'] ?? false) && $req->principalFromCookie) {
+            $req->principal = null;
+            $req->principalFromCookie = false;
         }
         if ($route['authenticated'] ?? false) {
             $this->checkAuthentication($route, $req);
@@ -52,12 +52,13 @@ final class RouteGuard
     /** @param array<string, mixed> $route */
     private function checkAuthentication(array $route, Request $req): void
     {
-        if ($req->jwt === null) {
+        $principal = $req->principal;
+        if ($principal === null) {
             throw new UnauthorizedException();
         }
 
         $role = $route['role'] ?? null;
-        if (is_string($role) && ($req->jwt['role'] ?? null) !== $role) {
+        if (is_string($role) && !self::hasRole($principal, $role)) {
             throw new ForbiddenException();
         }
 
@@ -69,9 +70,22 @@ final class RouteGuard
         $provider = $this->container?->get(PermissionOptions::class)->provider
             ?? ($this->container?->isRegistered(PermissionProvider::class) === true ? $this->container->get(PermissionProvider::class) : null);
         foreach ($permissions as $permission) {
-            if (!is_string($permission) || $provider === null || !$provider->hasPermission($req->jwt, $permission)) {
+            if (!is_string($permission) || $provider === null || !$provider->hasPermission($principal, $permission)) {
                 throw new ForbiddenException();
             }
         }
+    }
+
+    /**
+     * A 'role' claim equal to $role, or $role among the 'roles' claim's: a JWT carries one role, a session as many as
+     * the user has.
+     *
+     * @param array<string, mixed> $principal
+     */
+    private static function hasRole(array $principal, string $role): bool
+    {
+        $roles = $principal['roles'] ?? null;
+
+        return ($principal['role'] ?? null) === $role || (is_array($roles) && in_array($role, $roles, true));
     }
 }

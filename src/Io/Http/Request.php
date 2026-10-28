@@ -85,11 +85,37 @@ class Request
     /** The client's address: the connection's ('' if the runtime doesn't say), or behind a proxy listed in ProxyOptions::$trusted, what its X-Forwarded-For says. */
     public string $ip = '';
 
-    /** @var array<string, mixed>|null The decoded JWT payload, set by useJwt() when the request carried a valid token; #[Claims] binds it as a DTO. */
-    public ?array $jwt = null;
+    /**
+     * Who is signed in, as claims ('sub', 'name', 'role' or 'roles', ...): the decoded JWT payload useJwt() found, or
+     * what a session middleware set here (with $principalFromCookie). #[Authenticated], #[Role] and #[Permissions] check it,
+     * #[Claims] binds it as a DTO.
+     *
+     * @var array<string, mixed>|null
+     */
+    public ?array $principal = null;
 
-    /** Whether $jwt came from the cookie (JWTOptions::$cookieName), which the browser sends on its own: a #[SkipCsrf] route ignores it. */
-    public bool $jwtFromCookie = false;
+    /** Whether $principal came from a cookie, which the browser sends on its own: a #[SkipCsrf] route ignores it. */
+    public bool $principalFromCookie = false;
+
+    /**
+     * The same as $principal, under the name it had while only a JWT could sign a request in.
+     *
+     * @var array<string, mixed>|null
+     */
+    public ?array $jwt {
+        get => $this->principal;
+        set(?array $value) {
+            $this->principal = $value;
+        }
+    }
+
+    /** The same as $principalFromCookie. */
+    public bool $jwtFromCookie {
+        get => $this->principalFromCookie;
+        set(bool $value) {
+            $this->principalFromCookie = $value;
+        }
+    }
 
     /** The #[Body] DTO the matched route built (set before validation runs, so present even when validation fails); null until routing has run. */
     public ?object $bodyDto = null;

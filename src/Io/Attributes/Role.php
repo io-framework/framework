@@ -5,7 +5,8 @@ namespace Io\Attributes;
 use Attribute;
 
 /**
- * Requires `$req->jwt['role']` to equal $role. On the class (every route on
+ * Requires the principal's `role` claim to equal $role, or its `roles` list to
+ * contain it (`$req->principal`, a JWT's payload or a session's claims). On the class (every route on
  * it, also those of subclasses) or a single method; the method's wins if both
  * are present, the same precedence #[Version] and #[Sunset] use. Implies
  * #[Authenticated]: a request without a valid JWT gets UnauthorizedException

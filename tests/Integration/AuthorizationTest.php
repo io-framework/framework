@@ -94,6 +94,33 @@ final class AuthorizationTest extends IntegrationTestCase
         $this->assertSame(['ok' => true], json_decode($output, true));
     }
 
+    public function testRoleRouteAllowsTheRoleAmongARolesList(): void
+    {
+        $token = JWT::encode(['sub' => '1', 'roles' => ['editor', 'admin']]);
+
+        $this->dispatch('GET', '/authz/admin-role', ['Authorization' => "Bearer $token"]);
+
+        $this->assertSame(200, $this->lastResponse?->status());
+    }
+
+    public function testAPrincipalAMiddlewareSetSignsTheRequestIn(): void
+    {
+        $app = App::create();
+        $app->attach([AuthorizationController::class]);
+        $app->use(function (\Io\Http\Request $req, \Io\Http\Response $res, callable $next): mixed {
+            $req->principal = ['sub' => '7', 'roles' => ['admin']];
+            $req->principalFromCookie = true;
+            // The old name reads the same claims
+            $this->assertSame('7', $req->jwt['sub'] ?? null);
+
+            return $next($req, $res);
+        });
+
+        $this->dispatch('GET', '/authz/admin-role');
+
+        $this->assertSame(200, $this->lastResponse?->status());
+    }
+
     public function testMethodLevelRoleOverridesTheClassLevelRole(): void
     {
         $editorToken = JWT::encode(['sub' => '1', 'role' => 'editor']);
