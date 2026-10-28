@@ -6,18 +6,21 @@ use PhpParser\Node;
 use PHPStan\Analyser\Error;
 use PHPStan\Analyser\IgnoreErrorExtension;
 use PHPStan\Analyser\Scope;
-use Io\Attributes\ListOf;
-use Io\Attributes\Returns;
+use Io\Attributes\{Body, ListOf, Returns};
 
 /**
  * #[Returns] and #[ListOf] name an array's element type, so PHPStan does not ask for a docblock with it
  * (missingType.iterableValue): on a method's return type with #[Returns], on a property or a constructor
- * parameter with #[ListOf]. Loaded by PHPStan only (extension.neon).
+ * parameter with #[ListOf]. A `#[Body(of: ...)] Form` parameter needs no `Form<...>` either (missingType.generics).
+ * Loaded by PHPStan only (extension.neon).
  */
 final class AttributeTypes implements IgnoreErrorExtension
 {
     public function shouldIgnore(Error $error, Node $node, Scope $scope): bool
     {
+        if ($error->getIdentifier() === 'missingType.generics') {
+            return $this->bodyForm($error, $scope);
+        }
         if ($error->getIdentifier() !== 'missingType.iterableValue') {
             return false;
         }
@@ -41,5 +44,22 @@ final class AttributeTypes implements IgnoreErrorExtension
             return false;
         }
         return str_contains($error->getMessage(), ' return type ') && $method->getAttributes(Returns::class) !== [];
+    }
+
+    /** `#[Body(of: LoginForm::class)] Form $form`: the attribute names the Form's DTO, so no `Form<LoginForm>` docblock */
+    private function bodyForm(Error $error, Scope $scope): bool
+    {
+        $class = $scope->getClassReflection()?->getNativeReflection();
+        $function = $scope->getFunction();
+        if ($class === null || $function === null || preg_match('/ has parameter \$(\w+) with generic class Io\\\\Form /', $error->getMessage(), $match) !== 1) {
+            return false;
+        }
+        foreach ($class->getMethod($function->getName())->getParameters() as $parameter) {
+            if ($parameter->getName() === $match[1]) {
+                $arguments = ($parameter->getAttributes(Body::class)[0] ?? null)?->getArguments() ?? [];
+                return is_string($arguments['of'] ?? $arguments[1] ?? null);
+            }
+        }
+        return false;
     }
 }

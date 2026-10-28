@@ -33,7 +33,11 @@ final class AttributeTypesTest extends TestCase
 
     public function testABodyFormIsAFormOfItsDto(): void
     {
-        $this->assertStringContainsString('undefined property object::$email', self::analyse(false, 'FormTyped.php'));
-        $this->assertStringNotContainsString('$email', self::analyse(true, 'FormTyped.php'));
+        $without = self::analyse(false, 'FormTyped.php');
+        $this->assertStringContainsString('undefined property object::$email', $without);
+        $this->assertStringContainsString('with generic class Io\\Form', $without);
+        $with = self::analyse(true, 'FormTyped.php');
+        $this->assertStringNotContainsString('$email', $with);
+        $this->assertStringNotContainsString('generic class', $with);
     }
 }
