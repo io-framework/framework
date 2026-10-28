@@ -4,7 +4,7 @@ namespace Io\Tests\Unit\Http;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Io\Http\Redirect;
+use Io\Http\{Redirect, Request};
 
 final class RedirectTest extends TestCase
 {
@@ -45,5 +45,25 @@ final class RedirectTest extends TestCase
         $this->expectExceptionMessage('line breaks');
 
         new Redirect("/x\r\nSet-Cookie: evil=1");
+    }
+
+    public function testBackFollowsALocalPathFromTheQueryOrTheForm(): void
+    {
+        $query = Request::fromParts('GET', '/login?next=' . rawurlencode('/a/1?tab=cast'));
+        $form = Request::fromParts('POST', '/login', form: ['next' => '/profil']);
+
+        $this->assertSame('/a/1?tab=cast', Redirect::back($query)->location);
+        $this->assertSame('/profil', Redirect::back($form)->location);
+        $this->assertSame(303, Redirect::back($form)->status);
+        $this->assertSame('/home', Redirect::back(Request::fromParts('GET', '/login'), '/home')->location);
+    }
+
+    public function testBackRefusesEverythingThatLeavesTheSite(): void
+    {
+        foreach (['https://evil.test/', '//evil.test', '/\\evil.test', '/\\/evil.test', '\\evil.test', 'evil', '/a b', "/a\tb", '', '/%0d%0a'] as $next) {
+            $req = Request::fromParts('POST', '/login', form: ['next' => $next]);
+            $expected = $next === '/%0d%0a' ? $next : '/fallback';
+            $this->assertSame($expected, Redirect::back($req, '/fallback')->location, $next);
+        }
     }
 }

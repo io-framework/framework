@@ -400,9 +400,15 @@ class App
                 return;
                 // @codeCoverageIgnoreEnd
             }
-            $loginRedirectUrl = $this->container->get(JWTOptions::class)->loginRedirectUrl;
-            if ($loginRedirectUrl !== null && self::isBrowserNavigation($req)) {
-                $res->status(302)->withHeader('Location', $loginRedirectUrl);
+            $jwt = $this->container->get(JWTOptions::class);
+            if ($jwt->loginRedirectUrl !== null && self::isBrowserNavigation($req)) {
+                $location = $jwt->loginRedirectUrl;
+                // The page the visitor wanted, for Redirect::back() once they are in
+                if ($jwt->returnParameter !== null && $req->method === 'GET') {
+                    $here = $req->path . ($req->query === [] ? '' : '?' . http_build_query($req->query));
+                    $location .= (str_contains($location, '?') ? '&' : '?') . $jwt->returnParameter . '=' . rawurlencode($here);
+                }
+                $res->status(302)->withHeader('Location', $location);
                 return;
             }
             $this->writeProblemDetails($res, $e->getStatusCode(), $e->toProblemDetails());

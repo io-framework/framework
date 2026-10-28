@@ -64,3 +64,12 @@ public ?string $loginRedirectUrl = null;
 Where an UnauthorizedException sends a browser page navigation (Sec-Fetch-Mode: navigate) as a
 302 instead of 401 JSON. Null (default): always 401, right for an API with no login page. Any
 other fetch()/XHR call gets the 401 either way.
+
+### $returnParameter
+
+```php
+public ?string $returnParameter = 'next';
+```
+
+The query parameter that tells the login page where the visitor was (`/login?next=%2Forders%3Fpage%3D2`),
+for Redirect::back() after the login; only a GET navigation hands its page over. Null leaves it out.

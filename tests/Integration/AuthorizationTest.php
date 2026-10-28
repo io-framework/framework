@@ -187,6 +187,29 @@ final class AuthorizationTest extends IntegrationTestCase
         $this->dispatch('GET', '/authz/authenticated', ['Sec-Fetch-Mode' => 'navigate']);
 
         $this->assertSame(302, $this->lastResponse?->status());
+        $this->assertSame('/login?next=%2Fauthz%2Fauthenticated', $this->sentHeaders()['location'] ?? null);
+    }
+
+    public function testTheLoginRedirectCarriesTheQueryAndKeepsTheLoginUrlsOwn(): void
+    {
+        App::create()->configure(function (JWTOptions $opts) {
+            $opts->loginRedirectUrl = '/login?lang=de';
+        });
+
+        $this->dispatch('GET', '/authz/authenticated?page=2', ['Sec-Fetch-Mode' => 'navigate']);
+
+        $this->assertSame('/login?lang=de&next=' . rawurlencode('/authz/authenticated?page=2'), $this->sentHeaders()['location'] ?? null);
+    }
+
+    public function testTheLoginRedirectLeavesTheReturnOutWithoutAParameter(): void
+    {
+        App::create()->configure(function (JWTOptions $opts) {
+            $opts->loginRedirectUrl = '/login';
+            $opts->returnParameter = null;
+        });
+
+        $this->dispatch('GET', '/authz/authenticated', ['Sec-Fetch-Mode' => 'navigate']);
+
         $this->assertSame('/login', $this->sentHeaders()['location'] ?? null);
     }
 

@@ -71,3 +71,20 @@ public string $cookieSameSite = 'Lax';
 ```
 
 Cookie SameSite attribute; 'Lax' still sends it on a top-level navigation into a form.
+
+## Methods
+
+### keepSecretIn()
+
+```php
+public function keepSecretIn(string $file): void
+```
+
+Turns the protection on with a secret kept in $file: read from it, or on the first start 32 random
+bytes written there as hex, readable by the owner only, so tokens survive a restart without a secret
+in the environment. A secret set before wins; `$opts->secret = $env->string('CSRF_SECRET', '')` first
+lets the environment decide in production. Plain file functions: it runs while the app is configured.
+
+**Parameters**
+
+- `$file` `string`

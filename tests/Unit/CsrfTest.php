@@ -381,4 +381,29 @@ final class CsrfTest extends TestCase
         }
         return null;
     }
+
+    public function testKeepSecretInWritesASecretOnceAndReadsItAfterwards(): void
+    {
+        $dir = sys_get_temp_dir() . '/io-csrf-' . bin2hex(random_bytes(4));
+        $file = "$dir/data/csrf-secret";
+        try {
+            $first = new CsrfOptions();
+            $first->keepSecretIn($file);
+            $second = new CsrfOptions();
+            $second->keepSecretIn($file);
+
+            $this->assertSame(64, strlen($first->secret));
+            $this->assertSame($first->secret, $second->secret);
+            $this->assertSame(0600, fileperms($file) & 0777);
+
+            $configured = new CsrfOptions();
+            $configured->secret = 'from-the-environment-long-enough-32';
+            $configured->keepSecretIn($file);
+            $this->assertSame('from-the-environment-long-enough-32', $configured->secret);
+        } finally {
+            @unlink($file);
+            @rmdir("$dir/data");
+            @rmdir($dir);
+        }
+    }
 }

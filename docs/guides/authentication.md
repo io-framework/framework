@@ -195,6 +195,19 @@ A cookie is sent by the browser on its own, also with requests another site trig
 
 With `JWTOptions::$loginRedirectUrl` set, a page navigation to an `#[Authenticated]` route without a valid token answers `302` to that URL. `fetch()` calls and API clients still get `401` (see [Errors](errors.md#401-for-pages-and-for-apis)).
 
+The redirect names the page the visitor wanted: `/login?next=%2Forders%3Fpage%3D2` (`JWTOptions::$returnParameter`, `null` to leave it out). After the login, `Redirect::back($req, '/backoffice')` goes there, taking `next` from the query or from a hidden field of the form, and falls back to the default for anything that is not a path of this site:
+
+```php
+#[Post('/login')]
+public function login(#[Body(validate: false)] LoginForm $form, Request $req, Response $res): View|Redirect
+{
+    // ... check the password, set the cookie
+    return Redirect::back($req, '/backoffice');
+}
+```
+
+The login page puts the query's `next` into a hidden field of the same name, so it survives the form post.
+
 ## Guarding routes
 
 Everyone in the bakery sees the order board and the stock; the sales and the exports are for the owner (from `src/Controllers/BackofficeController.php`, with a permission check added):
@@ -324,6 +337,7 @@ It is on as soon as `CsrfOptions::$secret` is set. Then every `POST`, `PUT`, `PA
 | [`CsrfOptions`](../reference/Io/Options/CsrfOptions.md) | Default | |
 |---|---|---|
 | `secret` | none | HMAC key, at least 32 bytes; unset means no CSRF checks at all |
+| `keepSecretIn($file)` | | a method: the secret from `$file`, generated there on the first start (mode `0600`); a secret set before wins |
 | `ttl` | `3600` | lifetime of a token and its cookie in seconds |
 | `cookieName` | `csrf_token` | readable by JavaScript on purpose |
 | `headerName`, `fieldName` | `X-CSRF-Token`, `_csrf` | where the token is repeated |

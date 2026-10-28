@@ -26,4 +26,10 @@ class JWTOptions
      * other fetch()/XHR call gets the 401 either way.
      */
     public ?string $loginRedirectUrl = null;
+
+    /**
+     * The query parameter that tells the login page where the visitor was (`/login?next=%2Forders%3Fpage%3D2`),
+     * for Redirect::back() after the login; only a GET navigation hands its page over. Null leaves it out.
+     */
+    public ?string $returnParameter = 'next';
 }

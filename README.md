@@ -796,6 +796,17 @@ $app->configure(function (CsrfOptions $opts, Environment $env) {
 });
 ```
 
+Without a secret in the environment, `keepSecretIn()` turns the protection on with a secret kept in a file:
+generated on the first start (32 random bytes, mode `0600`), read on every start after it. A secret set before
+wins, so the environment can still decide in production:
+
+```php
+$app->configure(function (CsrfOptions $opts, Environment $env) {
+    $opts->secret = $env->string('CSRF_SECRET', '');
+    $opts->keepSecretIn(__DIR__ . '/data/csrf-secret');
+});
+```
+
 Once a secret is set, every `POST`/`PUT`/`PATCH`/`DELETE` request is checked automatically (`GET`/`HEAD`
 never carry a body/side effect worth protecting). There is no middleware to register. A token is issued as a
 cookie (`CsrfOptions::$cookieName`, default `csrf_token`) on every rendered `View` (see
@@ -1115,7 +1126,12 @@ for a permanent move, `307` to preserve the original method). The response is ju
 queued on the `Response` (cookies, headers) is kept. A `$location` that is empty or contains a line break
 is rejected at construction. A redirect is an ordinary result, not an exception: the cases that *should*
 redirect on failure (no/expired JWT on an `#[Authenticated]` route) already go through
-`JWTOptions::$loginRedirectUrl` (see [JWTOptions](#jwtoptions)).
+`JWTOptions::$loginRedirectUrl` (see [JWTOptions](#jwtoptions)), which hands the page over as `?next=`.
+
+`Redirect::back($req, '/profile')` sends the visitor back after a login or logout: to the path in the query's or the
+form's `next` (a hidden field), else to the default, with `303`. Only a path of this site is followed
+(`Redirect::isLocal()`: one leading slash, no `//`, no backslash, no whitespace), so a crafted link to the login
+page cannot send someone to another site afterwards.
 
 ---
 
@@ -1846,6 +1862,7 @@ Configuration mainly happens through `load(?string $dir = null)`, not a plain pr
 | `header` | `'Authorization'` | Request header the token is read from. |
 | `cookieName` | `null` (disabled) | Cookie name to additionally read the token from when the header didn't produce one, so a signed-in session survives a plain page load, not just fetch()/XHR calls. |
 | `loginRedirectUrl` | `null` (disabled) | Where an `UnauthorizedException` (e.g. `#[Authenticated]` with no/expired JWT) sends a browser page navigation (`Sec-Fetch-Mode: navigate`) as a `302` instead of `401` JSON. Any other `fetch()`/XHR call still gets the `401`. |
+| `returnParameter` | `'next'` | The query parameter that tells the login page which page a `GET` navigation wanted (`/login?next=%2Forders`), for `Redirect::back()`; `null` leaves it out. |
 
 ### [LoggerOptions](#logging)
 
