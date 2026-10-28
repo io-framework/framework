@@ -6,7 +6,7 @@ use Io\Enums\Message;
 use Io\Exceptions\{HttpException, UnauthorizedException, ValidationException};
 use Io\Http\{Request, Response};
 use Io\Plugin\ArgumentBinder;
-use Io\FromArray;
+use Io\{Form, Hydrator};
 use Io\Validator;
 
 /** Turns a compiled argPlan (see RouteCompiler::buildArgPlan()) into the actual argument list for a route method call. */
@@ -34,6 +34,7 @@ final class ArgumentResolver
                 'Route' => self::typed($arg, $name, $params[$name] ?? null),
                 'Query' => self::typed($arg, $name, $req->query($name)),
                 'Body' => self::body($arg, self::parsed($req)),
+                'BodyForm' => self::form($arg, self::parsed($req)),
                 'BodyCollection' => self::bodyCollection($arg, self::parsed($req)),
                 'BodyArray' => self::parsed($req)->body,
                 'Claims' => self::claims($arg, $req),
@@ -99,15 +100,33 @@ final class ArgumentResolver
             return null;
             // @codeCoverageIgnoreEnd
         }
-        $dto = new $class($req->body());
-        $req->bodyDto = $dto;
-        if ($arg['validate'] ?? false) {
-            $errors = self::errors($dto, new Validator());
-            if ($errors) {
-                throw new ValidationException('Validation failed', $errors);
-            }
+        $form = Hydrator::form($class, $req->body());
+        $req->bodyDto = $form->dto;
+        $req->bodyForm = $form;
+        if (($arg['validate'] ?? false) && !$form->valid) {
+            throw new ValidationException('Validation failed', $form->errors);
         }
-        return $dto;
+        return $form->dto;
+    }
+
+    /**
+     * The body as a Form of the parameter's DTO: the method reads `$form->valid` and `$form->errors` itself.
+     *
+     * @param array<string, mixed> $arg
+     * @return Form<object>|null
+     */
+    private static function form(array $arg, Request $req): ?Form
+    {
+        $class = $arg['class'] ?? null;
+        if (!is_string($class) || !class_exists($class)) {
+            // @codeCoverageIgnoreStart
+            return null;
+            // @codeCoverageIgnoreEnd
+        }
+        $form = Hydrator::form($class, $req->body());
+        $req->bodyDto = $form->dto;
+        $req->bodyForm = $form;
+        return $form;
     }
 
     /**
@@ -135,9 +154,9 @@ final class ArgumentResolver
                 $errors["$index"] = ['item' => ['Expected an object.']];
                 continue;
             }
-            $dto = new $class($item);
+            [$dto, $failures] = Hydrator::make($class, $item);
             if ($validator !== null) {
-                $itemErrors = self::errors($dto, $validator);
+                $itemErrors = Hydrator::errorsOf($dto, $failures);
                 if ($itemErrors) {
                     $errors["$index"] = $itemErrors;
                 }
@@ -158,8 +177,7 @@ final class ArgumentResolver
      */
     public static function errors(object $dto, Validator $validator = new Validator()): array
     {
-        $traits = array_merge(class_uses($dto), ...array_map(class_uses(...), array_values(class_parents($dto))));
-        return in_array(FromArray::class, $traits, true) && property_exists($dto, 'errors') && is_array($dto->errors) ? $dto->errors : $validator->validate($dto);
+        return Hydrator::usesFromArray($dto::class) && property_exists($dto, 'errors') && is_array($dto->errors) ? $dto->errors : $validator->validate($dto);
     }
 
     /**

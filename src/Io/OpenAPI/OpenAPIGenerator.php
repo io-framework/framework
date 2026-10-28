@@ -577,7 +577,8 @@ class OpenAPIGenerator
                 ];
             } elseif ($kind === 'body') {
                 $isCollection = in_array($type, ['array', 'iterable'], true) && $bodyOf !== null;
-                $dto = $isCollection ? $bodyOf : $type;
+                // #[Body(of: LoginForm::class)] Form $form: the body is the DTO
+                $dto = $isCollection || ($type === \Io\Form::class && $bodyOf !== null) ? $bodyOf : $type;
                 if ($dto === null || !class_exists($dto)) {
                     $this->logger->warning(Message::GeneratorPropertyDoesNotExist2->interpolate(type: $dto ?? 'mixed', method: "$controllerClass::$methodName"));
                     continue;

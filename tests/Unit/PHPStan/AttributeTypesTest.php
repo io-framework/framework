@@ -6,12 +6,12 @@ use PHPUnit\Framework\TestCase;
 
 final class AttributeTypesTest extends TestCase
 {
-    private static function analyse(bool $withExtension): string
+    private static function analyse(bool $withExtension, string $file = 'AttributeTyped.php'): string
     {
         $root = dirname(__DIR__, 3);
         $config = sys_get_temp_dir() . '/io-phpstan-' . bin2hex(random_bytes(4)) . '.neon';
         file_put_contents($config, ($withExtension ? "includes:\n    - $root/extension.neon\n" : '') . "parameters:\n    level: 10\n");
-        exec(escapeshellarg("$root/vendor/bin/phpstan") . ' analyse --no-progress --error-format=raw -c ' . escapeshellarg($config) . ' ' . escapeshellarg("$root/tests/Fixtures/PHPStan/AttributeTyped.php") . ' 2>&1', $output);
+        exec(escapeshellarg("$root/vendor/bin/phpstan") . ' analyse --no-progress --error-format=raw -c ' . escapeshellarg($config) . ' ' . escapeshellarg("$root/tests/Fixtures/PHPStan/$file") . ' 2>&1', $output);
         unlink($config);
         return implode("\n", $output);
     }
@@ -29,5 +29,11 @@ final class AttributeTypesTest extends TestCase
         $this->assertStringNotContainsString('$tags', $with);
         // Without an attribute PHPStan still asks
         $this->assertStringContainsString('untyped() return type has no value type', $with);
+    }
+
+    public function testABodyFormIsAFormOfItsDto(): void
+    {
+        $this->assertStringContainsString('undefined property object::$email', self::analyse(false, 'FormTyped.php'));
+        $this->assertStringNotContainsString('$email', self::analyse(true, 'FormTyped.php'));
     }
 }

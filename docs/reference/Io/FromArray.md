@@ -1,6 +1,6 @@
 ---
 title: "FromArray"
-description: "The array constructor #[Body] DTOs need (Router constructs them as `new $class($req->body())`): each key that names a publicly writable instance property is assigned, unknown keys are ignored, and a value that doesn't fit the property's type is left out and recorded as a failure (a 422, not a TypeError 500, and never cast: \"false\" is no true)."
+description: "An array constructor and validation inside the DTO, the older way to take a request body: the Hydrator (and `#[Body(of: Dto::class)] Form $form`) does the same for a plain class."
 order: 100
 generated: true
 ---
@@ -11,8 +11,8 @@ generated: true
 trait FromArray
 ```
 
-The array constructor #[Body] DTOs need (Router constructs them as
-`new $class($req->body())`): each key that names a publicly writable
+An array constructor and validation inside the DTO, the older way to take a request body: the Hydrator (and
+`#[Body(of: Dto::class)] Form $form`) does the same for a plain class. Each key that names a publicly writable
 instance property is assigned, unknown keys are ignored, and a value that
 doesn't fit the property's type is left out and recorded as a failure (a 422,
 not a TypeError 500, and never cast: "false" is no true). A form's text for a

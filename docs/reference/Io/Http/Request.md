@@ -159,6 +159,16 @@ public ?object $bodyDto = null;
 
 The #[Body] DTO the matched route built (set before validation runs, so present even when validation fails); null until routing has run.
 
+### $bodyForm
+
+```php
+public ?\Io\Form $bodyForm = null;
+```
+
+**Type** [`Form`](../Form.md)`<object>|null`
+
+The #[Body] DTO with what was wrong with it, for a page that shows the form again.
+
 ### $id
 
 ```php

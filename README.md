@@ -445,6 +445,12 @@ See [Exception Handling](#exception-handling). The messages are English by defau
 
 ### Hydrating DTOs (`FromArray`)
 
+A `#[Body]` DTO needs no trait any more: `Io\Hydrator` builds a plain class (public properties, or a `readonly`
+one with constructor promotion) under the rules below, and `#[Body(of: LoginForm::class)] Form $form` hands a
+method the DTO with its errors (`$form->dto`, `$form->errors`, `$form->valid`, `$form->fail()`) instead of a
+`422`. `#[Trim]` on a property, or on the class with `#[Trim(false)]` for exceptions, trims the text before the
+rules run. `FromArray` keeps working as described here and uses the same Hydrator.
+
 `#[Body]`/`#[Body(of: ...)]` construct your DTO directly as `new YourDTO($req->body())` (see
 [Array/collection request bodies](#arraycollection-request-bodies) above), so every DTO used that way
 needs a constructor that hydrates its public properties from an array. `use Io\FromArray;` provides

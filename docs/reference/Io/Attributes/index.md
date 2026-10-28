@@ -10,7 +10,7 @@ generated: true
 - [`After`](After.md) · class: Validation: the date must lie after $date, which takes what DateTimeImmutable takes ('today', '-18 years', '2000-01-01').
 - [`Authenticated`](Authenticated.md) · class: Requires a valid, decoded JWT (see useJwt()) for this route, on the class (every route on it, also those of subclasses) or a single method.
 - [`Before`](Before.md) · class: Validation: the date must lie before $date, which takes what DateTimeImmutable takes ('today', '-18 years', '2000-01-01').
-- [`Body`](Body.md) · class: Binds the request body to a method parameter: a DTO class (hydrated via its array constructor, see FromArray, then validated), or, for an `array` parameter with `of: OrderLine::class`, a list of them, one per element.
+- [`Body`](Body.md) · class: Binds the request body to a method parameter: a DTO class (built by the Hydrator, then validated), for an `array` parameter with `of: OrderLine::class` a list of them, one per element, and for an `Io\Form` parameter with `of: LoginForm::class` the DTO with its errors, which the method reads itself.
 - [`Check`](Check.md) · class: Validation: the Checker $checker must pass the value, for what needs the app (a code that has to exist in the database).
 - [`Claims`](Claims.md) · class: Binds the signed-in user's JWT claims (`$req->jwt`) to a parameter typed with a FromArray DTO: `#[Claims] StaffClaims $staff`.
 - [`Controller`](Controller.md) · class: Marks a class as an HTTP controller, with an optional path prefix for every route on it (e.g.
@@ -55,4 +55,5 @@ generated: true
 - [`Tags`](Tags.md) · class: OpenAPI tags for a controller (every route on it) or one route method; both levels are merged.
 - [`Task`](Task.md) · class: Marks a #[Manager] method as a CLI task, invoked as `php index.php [prefix:]name`.
 - [`Throws`](Throws.md) · class: Documents an error response (OpenAPI only): which exception, its HTTP status, and an optional description.
+- [`Trim`](Trim.md) · class: Trims the text a request sends for a property before it is checked: `" ada "` is `ada` for #[Length] and in the DTO.
 - [`Version`](Version.md) · class: URI-prefixes a route with a version segment: #[Version('v1')] on #[Get('/products')] routes it at /v1/products.

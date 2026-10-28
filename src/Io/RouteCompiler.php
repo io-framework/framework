@@ -504,7 +504,9 @@ final class RouteCompiler
             $argPlan[] = match (true) {
                 $type === Request::class => ['inject' => 'Request'],
                 $type === Response::class => ['inject' => 'Response'],
-                $body !== null && $type !== null && class_exists($type) => ['inject' => 'Body', 'class' => $type, 'validate' => $body->validate],
+                // #[Body(of: LoginForm::class)] Form $form: the DTO and its errors, never a 422
+                $body !== null && $type === \Io\Form::class && $of !== null && class_exists($of) => ['inject' => 'BodyForm', 'class' => $of],
+                $body !== null && $type !== null && class_exists($type) && $type !== \Io\Form::class => ['inject' => 'Body', 'class' => $type, 'validate' => $body->validate],
                 $type !== null && class_exists($type) && self::attribute($param, Claims::class) !== null => ['inject' => 'Claims', 'class' => $type, 'nullable' => $param->allowsNull()],
                 $body !== null && in_array($type, ['array', 'iterable'], true) && $of !== null && class_exists($of) => ['inject' => 'BodyCollection', 'class' => $of, 'validate' => $body->validate],
                 $body !== null && in_array($type, ['array', 'iterable'], true) => ['inject' => 'BodyArray'],

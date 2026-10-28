@@ -11,8 +11,11 @@ use PHPStan\Type\ExpressionTypeResolverExtension;
 use PHPStan\Type\MixedType;
 use PHPStan\Type\Type;
 use PHPStan\Type\TypeCombinator;
-use Io\Attributes\ListOf;
-use Io\Attributes\Returns;
+use Io\Attributes\{Body, ListOf, Returns};
+use Io\Form;
+use PHPStan\Reflection\MethodReflection;
+use PHPStan\Type\Generic\GenericObjectType;
+use PHPStan\Type\ObjectType;
 
 /**
  * Reading a #[ListOf] property gives the attribute's type (`list<OrderLine>`), so does calling a #[Returns] method
@@ -27,6 +30,9 @@ final class AttributeTypeResolver implements ExpressionTypeResolverExtension
 
     public function getType(Expr $expr, Scope $scope): ?Type
     {
+        if ($expr instanceof Expr\Variable && is_string($expr->name)) {
+            return $this->bodyForm($expr->name, $scope);
+        }
         if ($expr instanceof Expr\ArrayDimFetch && $expr->dim !== null) {
             // An offset of the attribute's array: PHPStan would take it from the native `array` when narrowing
             return $this->getType($expr->var, $scope)?->getOffsetValueType($scope->getType($expr->dim));
@@ -47,6 +53,29 @@ final class AttributeTypeResolver implements ExpressionTypeResolverExtension
             return null;
         }
         return $property ? $this->property($classes[0], $expr->name->name) : $this->method($classes[0], $expr->name->name);
+    }
+
+    /**
+     * `#[Body(of: LoginForm::class)] Form $form` is a `Form<LoginForm>`: the attribute names the DTO, so
+     * `$form->dto->email` is typed without a docblock.
+     */
+    private function bodyForm(string $name, Scope $scope): ?Type
+    {
+        $function = $scope->getFunction();
+        $class = $scope->getClassReflection();
+        if (!$function instanceof MethodReflection || $class === null || !$class->getNativeReflection()->hasMethod($function->getName())) {
+            return null;
+        }
+        foreach ($class->getNativeReflection()->getMethod($function->getName())->getParameters() as $parameter) {
+            $type = $parameter->getType();
+            if ($parameter->getName() !== $name || !$type instanceof \ReflectionNamedType || $type->getName() !== Form::class) {
+                continue;
+            }
+            $arguments = ($parameter->getAttributes(Body::class)[0] ?? null)?->getArguments() ?? [];
+            $of = $arguments['of'] ?? $arguments[1] ?? null;
+            return is_string($of) ? new GenericObjectType(Form::class, [new ObjectType($of)]) : null;
+        }
+        return null;
     }
 
     /**

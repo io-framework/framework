@@ -128,6 +128,33 @@ A JSON body that doesn't parse answers `400 Bad Request` before any DTO is built
 
 The DTO the route built is also in `$req->bodyDto`, even when validation failed, so a middleware or exception handler can see it.
 
+### Plain DTOs and Form
+
+A DTO needs no trait: the [`Hydrator`](../reference/Io/Hydrator.md) builds any class from the body, under the same rules as `FromArray` below (types fitted, never cast; form text converted; unknown keys and non-public properties left alone).
+
+- A class without constructor parameters is created and its public properties are filled.
+- A class with constructor parameters gets them by name, so a `readonly` DTO with constructor promotion works. When a required one is missing or does not fit, the DTO is built without its constructor, with the values that fit, and the error says so.
+- A nested DTO (a property typed with a class, or `#[ListOf]` of one) is built from its array, and its errors come under `address.city`.
+- `#[Trim]` on a property trims the text before the rules see it; on the class it trims every string property, and `#[Trim(false)]` keeps the spaces of one (a password).
+
+A form that shows its errors again takes an `Io\Form` instead of the DTO. The method gets the DTO with its errors, and no `422` comes before it:
+
+```php
+#[Post('/login')]
+public function login(#[Body(of: LoginForm::class)] Form $form): View|Redirect
+{
+    if ($form->valid && !$this->users->verify($form->dto->email, $form->dto->password)) {
+        $form->fail('password', 'Wrong email or password.');
+    }
+    if (!$form->valid) {
+        return new View('Login', $form);   // a View of an invalid form answers 422
+    }
+    ...
+}
+```
+
+`$form->dto` is the `LoginForm`, `$form->errors` maps each field to its messages, `$form->valid` says whether there are none, and `fail()` adds one. The errors are worked out once and again after `fail()`. PHPStan knows `$form->dto` is a `LoginForm` from the attribute, and the API spec describes the body as a `LoginForm`.
+
 ### FromArray
 
 A `#[Body]` DTO is created as `new Credentials($req->body())`. The [`FromArray`](../reference/Io/FromArray.md) trait provides that constructor:

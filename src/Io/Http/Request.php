@@ -94,6 +94,12 @@ class Request
     /** The #[Body] DTO the matched route built (set before validation runs, so present even when validation fails); null until routing has run. */
     public ?object $bodyDto = null;
 
+    /**
+     * The #[Body] DTO with what was wrong with it, for a page that shows the form again.
+     * @var \Io\Form<object>|null
+     */
+    public ?\Io\Form $bodyForm = null;
+
 
     /** Correlation id: the incoming X-Request-Id (or X-Correlation-Id), else a fresh UUID v4. Echoed back as X-Request-ID and stamped onto log lines. */
     public string $id;
