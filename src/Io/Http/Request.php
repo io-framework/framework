@@ -345,6 +345,59 @@ class Request
         return $this->query[$key] ?? $default;
     }
 
+    /** A query parameter as text; $default when it is missing or no text (`?q[]=x`). */
+    public function string(string $key, string $default = ''): string
+    {
+        $value = $this->query[$key] ?? null;
+
+        return is_string($value) ? $value : $default;
+    }
+
+    /** A query parameter as a whole number (`?page=2`); $default when it is missing or no whole number. */
+    public function int(string $key, int $default = 0): int
+    {
+        $value = $this->query[$key] ?? null;
+        $int = is_string($value) ? filter_var($value, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE) : null;
+
+        return $int ?? $default;
+    }
+
+    /** A query parameter as a switch: 1, true, on, yes or 0, false, off, no and empty; $default for anything else. */
+    public function bool(string $key, bool $default = false): bool
+    {
+        $value = $this->query[$key] ?? null;
+        $bool = is_string($value) ? filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) : null;
+
+        return $bool ?? $default;
+    }
+
+    /**
+     * A query parameter that may come several times (`?tag[]=a&tag[]=b`) or once (`?tag=a`), as a list of its texts.
+     *
+     * @return list<string>
+     */
+    public function strings(string $key): array
+    {
+        $value = $this->query[$key] ?? [];
+
+        return array_values(array_filter(is_array($value) ? $value : [$value], is_string(...)));
+    }
+
+    /**
+     * This request's path and query with $changes applied, for a link to the same page: a value replaces the
+     * parameter, null removes it. `$req->url(['lang' => 'de'])`, `$req->url(['page' => null])`; `$req->url()` is
+     * the page as requested, a return target for the login.
+     *
+     * @param array<string, scalar|list<scalar>|null> $changes
+     */
+    public function url(array $changes = []): string
+    {
+        $query = array_filter([...$this->query, ...$changes], fn (mixed $value): bool => $value !== null);
+        $text = http_build_query($query, encoding_type: PHP_QUERY_RFC3986);
+
+        return $this->path . ($text === '' ? '' : "?$text");
+    }
+
     /**
      * The whole decoded body (JSON or form fields) without $key, else one field of it or $default.
      * @return ($key is null ? array<array-key, mixed> : mixed)

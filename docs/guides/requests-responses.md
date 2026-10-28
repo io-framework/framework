@@ -68,6 +68,16 @@ final class RequestInfoController
 | `jwt` | the decoded JWT payload, see [Authentication](authentication.md) |
 | `id` | the correlation id, see [Logging](logging.md#request-ids) |
 
+The query string comes in from anyone, so its values can be anything: `?page[]=1` is an array, `?page=two` no number. The typed getters take only what fits and fall back to a default instead of failing:
+
+| Method | Gives |
+|---|---|
+| `string('q', '')` | the text, the default for a missing parameter or an array |
+| `int('page', 1)` | a whole number from `?page=2`; the default for `two` or `1.5` |
+| `bool('all')` | `true` for `1`, `true`, `on`, `yes`; `false` for `0`, `false`, `off`, `no` and empty |
+| `strings('tag')` | `?tag[]=a&tag[]=b` or `?tag=a` as a list of texts |
+| `url(['lang' => 'de'])` | the path with the query changed, for a link to the same page; `null` removes a parameter, `url()` is the page as requested |
+
 Header names are normalised by turning the parts between dashes into `Title-Case`; look them up that way. An underscore stays an underscore, so `X_Forwarded_For` is a different header from `X-Forwarded-For`.
 
 ### The body

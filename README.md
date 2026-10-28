@@ -1547,7 +1547,7 @@ declares what it adds and does nothing else:
 | `ArgumentBinder` | Own parameter attributes/types for controller methods, asked after the core attributes and before the implicit scalar binding. | `#[File]`, a table request. |
 | `Renderer` | Own return types, asked after `View`/`Redirect`. | Exports, PDFs. |
 | `OpenApiExtension` | Describes the plugin's bound parameters and rendered return types for the spec; without it they show as `string`/`object`. | `text/csv` for an export. |
-| `ViewHelper` | Methods templates can call as `$this->name()`; markup comes back as `Io\Html`, or `{{ }}` escapes it. | `$this->t('key')`. |
+| `ViewHelper` | Methods templates can call as `$this->name()`; markup comes back as `Io\Html`, or `{{ }}` escapes it. All of them, merged, are the service `Io\Plugin\ViewHelpers` for a plugin that renders templates of its own. | `$this->t('key')`. |
 | `ClientAsset` | CSS/JS files shipped by the plugin, served content-hashed; render with `$this->pluginAssetTags()`. | A table component. |
 
 State that belongs to one request (a locale, a user, queued messages) lives in a `Io\Support\FiberLocal`,
@@ -1896,6 +1896,7 @@ plain properties; `$levels` is one PSR-3 level or a list of them, all levels wit
 |---|---|---|
 | `directory` | `null` | Where view/layout `.php` templates (and their sibling `.css`/`.js`) live. |
 | `layout` | `'_Layout'` (no extension, matches nothing) | Default layout template; pass an explicit `.php` name, or every render falls back to bare view content. |
+| `errorView` | `null` | A view (`'Error'`) that an error answers a browser page navigation (`Sec-Fetch-Mode: navigate`) with, in the layout and with the error's status: 404, 403, the 500 of an exception, a path without a route. Its model is `['status' => 404, 'title' => 'Not Found', 'detail' => ?string]`. `fetch()` calls and API clients keep problem+json; a view that fails itself falls back to it. |
 
 ### [SecurityHeaderOptions](#security-headers)
 

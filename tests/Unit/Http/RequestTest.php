@@ -331,4 +331,32 @@ final class RequestTest extends TestCase
         $this->assertSame(['/my file.txt', '/a%2Fb'], [Request::fromParts('GET', '/my%20file.txt')->path, Request::fromParts('GET', '/a%2Fb')->path]);
         $this->assertSame('/p', Request::fromParts('GET', 'http://example.com/p?q=1')->path);
     }
+
+    public function testTypedQueryGettersTakeOnlyWhatFits(): void
+    {
+        $req = Request::fromParts('GET', '/search?q=pretzel&page=2&half=1.5&all=on&off=no&odd=maybe&arr[]=x&tag=a');
+
+        $this->assertSame('pretzel', $req->string('q'));
+        $this->assertSame('', $req->string('arr'));
+        $this->assertSame('none', $req->string('missing', 'none'));
+        $this->assertSame(2, $req->int('page'));
+        $this->assertSame(1, $req->int('half', 1));
+        $this->assertSame(7, $req->int('q', 7));
+        $this->assertTrue($req->bool('all'));
+        $this->assertFalse($req->bool('off', true));
+        $this->assertTrue($req->bool('odd', true));
+        $this->assertSame(['x'], $req->strings('arr'));
+        $this->assertSame(['a'], $req->strings('tag'));
+        $this->assertSame([], $req->strings('missing'));
+    }
+
+    public function testUrlMergesChangesIntoTheCurrentQuery(): void
+    {
+        $req = Request::fromParts('GET', '/explore?q=a%20b&page=3');
+
+        $this->assertSame('/explore?q=a%20b&page=3', $req->url());
+        $this->assertSame('/explore?q=a%20b&page=3&lang=de', $req->url(['lang' => 'de']));
+        $this->assertSame('/explore?q=a%20b', $req->url(['page' => null]));
+        $this->assertSame('/plain', Request::fromParts('GET', '/plain')->url());
+    }
 }

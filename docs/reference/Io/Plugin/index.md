@@ -20,3 +20,4 @@ generated: true
 - [`ResponseHook`](ResponseHook.md) · interface: Runs after the controller's result was rendered and before the app-level middlewares unwind.
 - [`RouteAttributeCompiler`](RouteAttributeCompiler.md) · interface: Turns a plugin's own route attributes into plain data at compile time.
 - [`ViewHelper`](ViewHelper.md) · interface: Methods available inside templates as `$this->name(...)`.
+- [`ViewHelpers`](ViewHelpers.md) · final readonly class: Every plugin's view helpers, merged, as a service: what a view calls as `$this->name()`, for a plugin that renders templates of its own (Live's components) and wants to offer the same.

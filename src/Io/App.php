@@ -13,7 +13,7 @@ use Throwable;
 use Io\Attributes\{PII, Sensitive};
 use Io\Exceptions\{HttpException, UnauthorizedException};
 use Io\Http\{Request, Response, TrustedProxies, View};
-use Io\Options\{CompressionOptions, CorsOptions, CsrfOptions, FileSystemOptions, JWTOptions, ProxyOptions, RequestOptions};
+use Io\Options\{CompressionOptions, CorsOptions, CsrfOptions, FileSystemOptions, JWTOptions, ProxyOptions, RendererOptions, RequestOptions};
 use Io\Plugin\{Plugin, PluginRegistry};
 use Io\Routing\{PropertyInjector, ServiceDiscovery};
 use Io\Support\FiberLocal;
@@ -388,7 +388,7 @@ class App
         // Any HttpException -> its RFC 9457 Problem Details.
         $this->useExceptionHandler(HttpException::class, function (Throwable $e, Request $req, Response $res): void {
             if ($e instanceof HttpException) {
-                $this->writeProblemDetails($res, $e->getStatusCode(), $e->toProblemDetails());
+                $this->writeProblemDetails($req, $res, $e->getStatusCode(), $e->toProblemDetails());
             }
         });
 
@@ -411,7 +411,7 @@ class App
                 $res->status(302)->withHeader('Location', $location);
                 return;
             }
-            $this->writeProblemDetails($res, $e->getStatusCode(), $e->toProblemDetails());
+            $this->writeProblemDetails($req, $res, $e->getStatusCode(), $e->toProblemDetails());
         });
 
         // Anything else: logged, and a generic 500 that never leaks the message (a file path,
@@ -420,13 +420,31 @@ class App
             // An error in a view names the view's own file and line, which its compiled code keeps
             $view = View::origin($e);
             $this->container->get(Logger::class)->error($e->getMessage(), ['exception' => $e] + ($view !== null ? ['view' => "{$view[0]}:{$view[1]}"] : []));
-            $this->writeProblemDetails($res, 500, ['type' => 'about:blank', 'title' => 'Internal Server Error', 'status' => 500]);
+            $this->writeProblemDetails($req, $res, 500, ['type' => 'about:blank', 'title' => 'Internal Server Error', 'status' => 500]);
         });
     }
 
     /** @param array<string, mixed> $problem */
-    private function writeProblemDetails(Response $res, int $status, array $problem): void
+    private function writeProblemDetails(Request $req, Response $res, int $status, array $problem): void
     {
+        $view = $this->container->get(RendererOptions::class)->errorView;
+        if ($view !== null && self::isBrowserNavigation($req) && isset($this->router)) {
+            try {
+                $detail = $problem['detail'] ?? null;
+                $title = $problem['title'] ?? null;
+                $res->status($status);
+                $this->router->renderErrorView(new View($view, [
+                    'status' => $status,
+                    'title' => is_string($title) ? $title : '',
+                    'detail' => is_string($detail) ? $detail : null,
+                ]), $req, $res);
+                return;
+            } catch (Throwable $e) {
+                // The error page broke as well (the database it reads is gone): the plain answer, and the log says why
+                $this->container->get(Logger::class)->error('error view: ' . $e->getMessage(), ['exception' => $e]);
+                $res->discard();
+            }
+        }
         $body = json_encode($problem);
         $res->status($status)
             ->withHeader('Content-Type', 'application/problem+json')

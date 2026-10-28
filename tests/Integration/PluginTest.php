@@ -114,6 +114,19 @@ final class PluginTest extends IntegrationTestCase
         $this->assertSame(".echo { color: red; }\n", $this->dispatch('GET', $m[1]));
     }
 
+    public function testTheMergedViewHelpersAreAService(): void
+    {
+        $this->boot();
+        $this->dispatch('GET', '/echo/view');
+
+        $helpers = App::create()->get(\Io\Plugin\ViewHelpers::class);
+
+        $this->assertTrue($helpers->has('shout'));
+        $this->assertSame('HELLO', ($helpers->get('shout'))('hello'));
+        $this->expectException(\BadMethodCallException::class);
+        $helpers->get('nope');
+    }
+
     public function testUnknownViewHelperIsAClearError(): void
     {
         $this->boot();

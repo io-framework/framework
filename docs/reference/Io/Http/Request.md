@@ -229,6 +229,81 @@ A query string value, or $default when the key is missing.
 
 **Returns** `mixed`
 
+### string()
+
+```php
+public function string(string $key, string $default = ''): string
+```
+
+A query parameter as text; $default when it is missing or no text (`?q[]=x`).
+
+**Parameters**
+
+- `$key` `string`
+- `$default` `string`
+
+**Returns** `string`
+
+### int()
+
+```php
+public function int(string $key, int $default = 0): int
+```
+
+A query parameter as a whole number (`?page=2`); $default when it is missing or no whole number.
+
+**Parameters**
+
+- `$key` `string`
+- `$default` `int`
+
+**Returns** `int`
+
+### bool()
+
+```php
+public function bool(string $key, bool $default = false): bool
+```
+
+A query parameter as a switch: 1, true, on, yes or 0, false, off, no and empty; $default for anything else.
+
+**Parameters**
+
+- `$key` `string`
+- `$default` `bool`
+
+**Returns** `bool`
+
+### strings()
+
+```php
+public function strings(string $key): array
+```
+
+A query parameter that may come several times (`?tag[]=a&tag[]=b`) or once (`?tag=a`), as a list of its texts.
+
+**Parameters**
+
+- `$key` `string`
+
+**Returns** `list<string>`
+
+### url()
+
+```php
+public function url(array $changes = []): string
+```
+
+This request's path and query with $changes applied, for a link to the same page: a value replaces the
+parameter, null removes it. `$req->url(['lang' => 'de'])`, `$req->url(['page' => null])`; `$req->url()` is
+the page as requested, a return target for the login.
+
+**Parameters**
+
+- `$changes` `array<string, scalar|list<scalar>|null>`
+
+**Returns** `string`
+
 ### body()
 
 ```php

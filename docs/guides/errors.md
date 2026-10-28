@@ -124,6 +124,18 @@ $app->useExceptionHandler(OutOfStock::class, function (OutOfStock $e, Request $r
 
 The most specific handler wins: one for the exact class, then for a parent class, then for an implemented interface, and the `Throwable` handler last. Registering a handler for a class again replaces the earlier one, including the built-in ones for `HttpException`, `UnauthorizedException` and `Throwable`. A handler for `Throwable` replaces the generic `500`; it then decides itself what to log and what to show.
 
+## Error pages
+
+A browser that navigates to a missing page should see the site, not JSON. Name a view in `RendererOptions::$errorView`, and an error answers a page navigation (`Sec-Fetch-Mode: navigate`) with it, in the layout and with the error's status: a `NotFoundException`, a path without a route, a `403`, the `500` of an unexpected exception. `fetch()` calls and API clients keep problem+json.
+
+```php
+$app->configure(function (RendererOptions $views) {
+    $views->errorView = 'Error';
+});
+```
+
+The view gets `['status' => 404, 'title' => 'Not Found', 'detail' => ?string]` and picks its own words by the status; the message of an unexpected exception never reaches it. If the view fails as well (the database it reads is gone), the answer falls back to problem+json and the log says why.
+
 ## 401 for pages and for APIs
 
 An API client that gets `401` can react to it; a browser that navigated to a page can't. With [`JWTOptions::$loginRedirectUrl`](../reference/Io/Options/JWTOptions.md) set, an `UnauthorizedException` on a page navigation (the browser sends `Sec-Fetch-Mode: navigate`) answers `302` to that URL instead. A `fetch()` call and any client that doesn't send the header still get the `401` problem. See [Authentication](authentication.md#login-pages).

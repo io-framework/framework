@@ -5,10 +5,11 @@ namespace Io;
 use RuntimeException;
 use Io\Attributes\Inject;
 use Io\Enums\RouteType;
+use Io\Exceptions\NotFoundException;
 use Io\Http\{PublicFileServer, Redirect, Request, Response, ResultRenderer, View};
 use Io\OpenAPI\OpenAPIEndpoint;
 use Io\Options\{CsrfOptions, FileSystemOptions, RendererOptions};
-use Io\Plugin\{ArgumentBinder, ClientAsset, Endpoint, Fallback, Guard, PluginRegistry, Renderer, ResponseHook, RouteAttributeCompiler};
+use Io\Plugin\{ArgumentBinder, ClientAsset, Endpoint, Fallback, Guard, PluginRegistry, Renderer, ResponseHook, RouteAttributeCompiler, ViewHelpers};
 use Io\Routing\{ArgumentResolver, PropertyInjector, RouteGuard};
 use Io\Support\Arr;
 
@@ -114,6 +115,7 @@ class Router
         $this->responseHooks = $this->plugins->hooks(ResponseHook::class);
         $this->renderers = $this->plugins->hooks(Renderer::class);
         $this->viewHelpers = $this->plugins->viewHelpers();
+        $container?->set(new ViewHelpers($this->viewHelpers));
 
         if ($preloadedCache !== null) {
             $this->importPlans($preloadedCache);
@@ -508,6 +510,10 @@ class Router
 
     private function respondNotFound(Response $res): void
     {
+        // With an error page the 404 goes through the exception handler like any other, so a browser gets the page
+        if ($this->container?->get(RendererOptions::class)->errorView !== null) {
+            throw new NotFoundException();
+        }
         $res->status(404)->withHeader('Content-Type', 'application/json')->write('{"error":"Not found"}');
     }
 
@@ -573,6 +579,12 @@ class Router
             'type' => is_string($type) ? $type : 'json',
             'options' => is_array($options) ? Arr::stringKeyed($options) : null,
         ]);
+    }
+
+    /** @internal The error page App renders for a browser navigation (RendererOptions::$errorView) */
+    public function renderErrorView(View $view, Request $req, Response $res): void
+    {
+        $this->renderView($view, $req, $res);
     }
 
     private function renderView(View $view, Request $req, Response $res): void
