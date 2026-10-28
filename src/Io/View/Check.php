@@ -2,6 +2,8 @@
 
 namespace Io\View;
 
+use Io\Support\Arr;
+
 use Closure;
 use FilesystemIterator;
 use ParseError;
@@ -28,6 +30,9 @@ use Io\Http\View;
  */
 final class Check
 {
+    /** @var array<string, list<string>|null> root => helper names, read once per run */
+    private static array $helperNames = [];
+
     /**
      * Views are read at the project's PHPStan level, but at 8 at most: what a plugin's view helper returns
      * (`$this->t()`) is known only to the running app, so it is mixed, which levels 9 and 10 refuse to use.
@@ -127,32 +132,165 @@ final class Check
         $level = $config !== null && preg_match('/^\s*level:\s*(\d+|max)\b/m', (string) file_get_contents($config), $m) === 1 ? ($m[1] === 'max' ? 10 : (int) $m[1]) : 6;
         return [
             ...self::analyse($root, $templates, $config === null ? 6 : null),
-            ...self::helpers(self::analyse($root, $views, $level > self::VIEW_LEVEL || $config === null ? min($level, self::VIEW_LEVEL) : null)),
+            ...self::helperFindings(self::analyse($root, $views, $level > self::VIEW_LEVEL || $config === null ? min($level, self::VIEW_LEVEL) : null), self::helperNames($root)),
         ];
     }
 
     /**
-     * A method View lacks is a plugin's view helper, which only the running app knows: PHPStan's finding of it goes,
-     * unless the name is close to one of View's own methods, a typo then.
+     * A method View lacks is a plugin's view helper. With the helpers of the installed plugins known
+     * (helperNames()), one of them goes and any other name is reported; without, every such finding goes, unless
+     * the name is close to one of View's own methods, a typo then.
      *
      * @param list<array{file: string, line: int, message: string, severity: 'error'}> $problems
+     * @param list<string>|null $helpers
      * @return list<array{file: string, line: int, message: string, severity: 'error'}>
      */
-    private static function helpers(array $problems): array
+    private static function helperFindings(array $problems, ?array $helpers = null): array
     {
         $methods = array_map(static fn (\ReflectionMethod $method) => $method->getName(), (new \ReflectionClass(View::class))->getMethods());
         $kept = [];
         foreach ($problems as $problem) {
             if (preg_match('/^Call to an undefined method ' . preg_quote(View::class, '/') . '::(\w+)\(\)\.$/', $problem['message'], $m) === 1) {
-                $close = array_values(array_filter($methods, static fn (string $method) => !str_starts_with($method, '__') && levenshtein(strtolower($m[1]), strtolower($method)) <= 2));
-                if ($close === []) {
+                if ($helpers !== null && in_array($m[1], $helpers, true)) {
                     continue;
                 }
-                $problem['message'] .= " Did you mean {$close[0]}()?";
+                $method = self::near($m[1], $methods);
+                if ($method !== []) {
+                    // A typo of View's own method
+                    $problem['message'] .= " Did you mean {$method[0]}()?";
+                } elseif ($helpers !== null) {
+                    $problem['message'] = self::unknownHelper($m[1], self::near($m[1], $helpers));
+                } else {
+                    continue;
+                }
             }
             $kept[] = $problem;
         }
         return $kept;
+    }
+
+    /**
+     * The names close to $name, a typo apart
+     *
+     * @param list<string> $names
+     * @return list<string>
+     */
+    private static function near(string $name, array $names): array
+    {
+        return array_values(array_filter($names, static fn (string $other): bool => !str_starts_with($other, '__') && levenshtein(strtolower($name), strtolower($other)) <= 2));
+    }
+
+    /**
+     * @internal The message for a helper no installed plugin offers, with the closest names
+     *
+     * @param list<string> $close
+     */
+    public static function unknownHelper(string $name, array $close): string
+    {
+        return "View helper $name() is offered by no installed plugin." . ($close === [] ? '' : " Did you mean {$close[0]}()?");
+    }
+
+    /**
+     * @internal The names of the view helpers the project and its installed packages offer: read from the
+     * `helpers()` of each class that implements Io\Plugin\ViewHelper, without running anything. Null when one of
+     * them does not return a literal array, so the names cannot be known.
+     *
+     * @return list<string>|null
+     */
+    public static function helperNames(string $root): ?array
+    {
+        if (array_key_exists($root, self::$helperNames)) {
+            return self::$helperNames[$root];
+        }
+        $directories = [];
+        $project = Arr::stringKeyed(json_decode((string) @file_get_contents("$root/composer.json"), true));
+        foreach (['autoload', 'autoload-dev'] as $section) {
+            foreach (Arr::stringKeyed(Arr::stringKeyed($project[$section] ?? null)['psr-4'] ?? null) as $directory) {
+                foreach (is_array($directory) ? $directory : [$directory] as $one) {
+                    if (is_string($one)) {
+                        $directories[] = "$root/$one";
+                    }
+                }
+            }
+        }
+        $installed = json_decode((string) @file_get_contents("$root/vendor/composer/installed.json"), true);
+        $packages = is_array($installed) && isset($installed['packages']) ? $installed['packages'] : $installed;
+        foreach (is_array($packages) ? $packages : [] as $package) {
+            $package = Arr::stringKeyed($package);
+            $path = $package['install-path'] ?? null;
+            // Only packages built on Io can offer view helpers
+            if (is_string($path) && isset(Arr::stringKeyed($package['require'] ?? null)['io/framework'])) {
+                $directories[] = "$root/vendor/composer/$path/src";
+            }
+        }
+        $names = [];
+        foreach ($directories as $directory) {
+            if (!is_dir($directory)) {
+                continue;
+            }
+            foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS)) as $file) {
+                if (!$file instanceof \SplFileInfo || $file->getExtension() !== 'php') {
+                    continue;
+                }
+                $source = (string) file_get_contents($file->getPathname());
+                if (!str_contains($source, 'ViewHelper') || !str_contains($source, 'function helpers')) {
+                    continue;
+                }
+                $found = self::helpersOf($source);
+                if ($found === null) {
+                    return self::$helperNames[$root] = null;
+                }
+                array_push($names, ...$found);
+            }
+        }
+        // No plugin found that offers any: then there is nothing to judge a call by
+        return self::$helperNames[$root] = $names === [] ? null : array_values(array_unique($names));
+    }
+
+    /**
+     * The keys of the literal array `helpers()` returns in $source; null for any other return.
+     *
+     * @return list<string>|null
+     */
+    private static function helpersOf(string $source): ?array
+    {
+        $tokens = array_values(array_filter(token_get_all($source), static fn ($t) => !is_array($t) || !in_array($t[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)));
+        $count = count($tokens);
+        for ($i = 0; $i < $count; $i++) {
+            if (!is_array($tokens[$i]) || $tokens[$i][0] !== T_FUNCTION || !is_array($tokens[$i + 1] ?? null) || $tokens[$i + 1][1] !== 'helpers') {
+                continue;
+            }
+            // An interface's or abstract method has no body and names nothing
+            $body = $i;
+            while ($body < $count && $tokens[$body] !== '{' && $tokens[$body] !== ';') {
+                $body++;
+            }
+            if (($tokens[$body] ?? ';') === ';') {
+                continue;
+            }
+            $i = $body;
+            while ($i < $count && !(is_array($tokens[$i]) && $tokens[$i][0] === T_RETURN)) {
+                $i++;
+            }
+            if (($tokens[$i + 1] ?? null) !== '[') {
+                return null;
+            }
+            $names = [];
+            $depth = 0;
+            for ($j = $i + 1; $j < $count; $j++) {
+                $token = $tokens[$j];
+                $depth += match ($token) { '[', '(', '{' => 1, ']', ')', '}' => -1, default => 0 };
+                if ($depth === 0) {
+                    return $names;
+                }
+                $next = $tokens[$j + 1] ?? null;
+                if ($depth === 1 && is_array($token) && $token[0] === T_CONSTANT_ENCAPSED_STRING && is_array($next) && $next[0] === T_DOUBLE_ARROW) {
+                    $names[] = trim($token[1], '\'"');
+                }
+            }
+            return null;
+        }
+        return [];
     }
 
     /** For a tenma.dev.php hook: PHPStan's findings go to the editor, through Development\Problems::report(). */

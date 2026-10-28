@@ -41,9 +41,19 @@ final class Redirect
      */
     public static function back(Request $req, string $default = '/', string $parameter = 'next', int $status = 303): self
     {
+        return new self(self::target($req, $parameter) ?? $default, $status);
+    }
+
+    /**
+     * The page to go back to, checked as back() checks it, or null: for the hidden field a login form carries on
+     * (`<input type="hidden" name="next" value="{{ Redirect::target($this->request) }}">`) and for a link to the
+     * registration that keeps it.
+     */
+    public static function target(Request $req, string $parameter = 'next'): ?string
+    {
         $next = $req->query($parameter) ?? $req->body($parameter);
 
-        return new self(is_string($next) && self::isLocal($next) ? $next : $default, $status);
+        return is_string($next) && self::isLocal($next) ? $next : null;
     }
 
     /**

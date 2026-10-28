@@ -4,7 +4,7 @@ namespace Io\OpenAPI;
 
 use Deprecated;
 use stdClass;
-use Io\{Logger, Router, App};
+use Io\{Logger, RouteCompiler, Router, App};
 use Io\Attributes\{Authenticated, Body, Claims, FileFormatter, Ignore, Param, Permissions, Query, Returns, Role, SimpleXmlFormatter, Summary, Tags, Throws};
 use Io\Enums\Message;
 use Io\Exceptions\HttpException;
@@ -112,7 +112,7 @@ class OpenAPIGenerator
                 continue;
             }
             [$controllerClass, $methodName] = $handlerSpec;
-            $rawPath = $route->rawPath;
+            $rawPath = RouteCompiler::plainPath($route->rawPath);
 
             $classAttrs = self::attrList($this->classCacheEntry($controllerClass)['__class'] ?? null);
             $methodAttrs = self::attrList($this->methodCacheEntry($controllerClass, $methodName)['__method'] ?? null);

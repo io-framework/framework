@@ -6,6 +6,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Deprecated;
 use InvalidArgumentException;
+use LogicException;
 use ReflectionAttribute;
 use ReflectionClass;
 use ReflectionMethod;
@@ -387,16 +388,77 @@ final class RouteCompiler
     }
 
     /** The match pattern for a path with {placeholders}: everything else matches literally ('.' is a dot, '#' is no delimiter). */
+    /**
+     * The route's regex: `{name}` takes a segment, `{name:pattern}` what the pattern matches, braces inside it
+     * counted (`{year:\\d{4}}`). A path that does not fit the pattern does not match the route.
+     */
     private static function pathRegex(string $path): string
     {
-        $pieces = preg_split('#(\{\w+\})#', $path, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [$path];
-        $pattern = '';
-        foreach ($pieces as $piece) {
-            $pattern .= preg_match('#^\{(\w+)\}$#', $piece, $placeholder)
-                ? "(?P<{$placeholder[1]}>[^/]+)"
-                : preg_quote($piece, '#');
+        $regex = '';
+        foreach (self::pathPieces($path) as [$text, $name, $pattern]) {
+            $regex .= $name === null ? preg_quote($text, '#') : "(?P<$name>" . str_replace('#', '\\#', $pattern ?? '[^/]+') . ')';
         }
-        return "#^{$pattern}$#";
+        if (@preg_match("#^$regex$#", '') === false) {
+            throw new LogicException("Route $path: a placeholder pattern is no valid regex");
+        }
+        return "#^$regex$#";
+    }
+
+    /** The path with its placeholders' patterns taken out, `/a/{id:\\d+}` as `/a/{id}`: for the API spec. */
+    public static function plainPath(string $path): string
+    {
+        $plain = '';
+        foreach (self::pathPieces($path) as [$text, $name]) {
+            $plain .= $name === null ? $text : '{' . $name . '}';
+        }
+        return $plain;
+    }
+
+    /**
+     * The path as text and placeholders: [text, null, null] or [source, name, pattern|null].
+     *
+     * @return list<array{string, ?string, ?string}>
+     */
+    private static function pathPieces(string $path): array
+    {
+        $pieces = [];
+        $text = '';
+        $length = strlen($path);
+        for ($i = 0; $i < $length; $i++) {
+            if ($path[$i] !== '{' || preg_match('#\G\{(\w+)(:|\})#', $path, $start, 0, $i) !== 1) {
+                $text .= $path[$i];
+                continue;
+            }
+            if ($text !== '') {
+                $pieces[] = [$text, null, null];
+                $text = '';
+            }
+            $i += strlen($start[0]);
+            if ($start[2] === '}') {
+                $pieces[] = [$start[0], $start[1], null];
+                $i--;
+                continue;
+            }
+            // The pattern runs to the brace that closes the placeholder
+            $depth = 1;
+            $pattern = '';
+            for (; $i < $length; $i++) {
+                $char = $path[$i];
+                $depth += $char === '{' ? 1 : ($char === '}' ? -1 : 0);
+                if ($depth === 0) {
+                    break;
+                }
+                $pattern .= $char;
+            }
+            if ($depth !== 0 || $pattern === '') {
+                throw new LogicException("Route $path: placeholder {{$start[1]}: has no closing brace or no pattern");
+            }
+            $pieces[] = ["{{$start[1]}:$pattern}", $start[1], $pattern];
+        }
+        if ($text !== '') {
+            $pieces[] = [$text, null, null];
+        }
+        return $pieces;
     }
 
     /** Whether a non-nullable #[Claims] parameter makes the route need a signed-in user. */

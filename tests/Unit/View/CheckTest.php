@@ -70,4 +70,21 @@ final class CheckTest extends TestCase
             Check::phpstan(self::$root),
         ));
     }
+
+    public function testHelperNamesAreReadFromThePluginsWithoutRunningThem(): void
+    {
+        $root = sys_get_temp_dir() . '/io-helpers-' . bin2hex(random_bytes(4));
+        mkdir("$root/src", 0777, true);
+        file_put_contents("$root/composer.json", json_encode(['autoload' => ['psr-4' => ['App\\' => 'src/']]]));
+        file_put_contents("$root/src/Words.php", "<?php\nfinal class Words implements Io\\Plugin\\ViewHelper {\n    public function helpers(): array\n    {\n        return ['shout' => fn (\$t) => strtoupper(\$t), 'whisper' => strtolower(...)];\n    }\n}\n");
+        try {
+            $this->assertSame(['shout', 'whisper'], Check::helperNames($root));
+            $this->assertSame('View helper tt() is offered by no installed plugin. Did you mean t()?', Check::unknownHelper('tt', ['t']));
+        } finally {
+            unlink("$root/src/Words.php");
+            unlink("$root/composer.json");
+            rmdir("$root/src");
+            rmdir($root);
+        }
+    }
 }

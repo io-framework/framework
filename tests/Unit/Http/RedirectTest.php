@@ -66,4 +66,11 @@ final class RedirectTest extends TestCase
             $this->assertSame($expected, Redirect::back($req, '/fallback')->location, $next);
         }
     }
+
+    public function testTargetGivesTheCheckedPathOrNull(): void
+    {
+        $this->assertSame('/a/1', Redirect::target(Request::fromParts('GET', '/login?next=%2Fa%2F1')));
+        $this->assertNull(Redirect::target(Request::fromParts('GET', '/login?next=%2F%2Fevil.test')));
+        $this->assertNull(Redirect::target(Request::fromParts('GET', '/login')));
+    }
 }

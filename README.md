@@ -285,7 +285,8 @@ none of this binds stops the app at boot with an `InvalidArgumentException` inst
 Placeholder values arrive URL-decoded, once: `/products/br%C3%B6tchen` binds `brötchen`, `/products/%2541`
 binds `%41`, and an encoded `%2F` stays inside its own segment. Everything around the placeholders matches
 literally, so the bakery's `/backoffice/orders.{format}` matches `/backoffice/orders.csv` but not
-`/backoffice/ordersxcsv`.
+`/backoffice/ordersxcsv`. A pattern after a colon limits a placeholder: `/a/{id:\d+}-{slug:[a-z0-9-]*}`,
+`{format:csv|xlsx}`; a path that does not fit answers `404`, and the API spec shows `/a/{id}-{slug}`.
 
 ```php
 use Bakery\Requests\StatusChange;
@@ -1052,7 +1053,9 @@ with its line, and an error while it renders keeps the view's file and line (`Vi
 With a cache directory the compiled templates are files under `{cacheDirectory}/views/`, so OPcache keeps them.
 
 `vendor/bin/io-check` checks every view without running the app: the compiler's mistakes, and PHPStan's
-findings with `$this` as the `View` and `$model` of its `@model` type, at the view's lines. Under `tenma lsp`
+findings with `$this` as the `View` and `$model` of its `@model` type, at the view's lines. It reads the view
+helpers the installed plugins offer (the literal array their `helpers()` returns) and reports a call of any
+other, in views and Live templates: `View helper tt() is offered by no installed plugin. Did you mean t()?`. Under `tenma lsp`
 the editor knows the views too (completion of `$this->` and `$model->` and their chains, hover, F12, the
 mistakes while typing). The variable of a loop over a `#[ListOf]` property or a `#[Returns(list: true)]` method
 gets the element class there, in views, Live templates and plain PHP files alike. See
@@ -1128,6 +1131,7 @@ is rejected at construction. A redirect is an ordinary result, not an exception:
 redirect on failure (no/expired JWT on an `#[Authenticated]` route) already go through
 `JWTOptions::$loginRedirectUrl` (see [JWTOptions](#jwtoptions)), which hands the page over as `?next=`.
 
+`Redirect::target($req)` is the checked `next` or null, for the hidden field the login form carries on.
 `Redirect::back($req, '/profile')` sends the visitor back after a login or logout: to the path in the query's or the
 form's `next` (a hidden field), else to the default, with `303`. Only a path of this site is followed
 (`Redirect::isLocal()`: one leading slash, no `//`, no backslash, no whitespace), so a crafted link to the login

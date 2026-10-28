@@ -58,6 +58,20 @@ implies authenticated.
 
 **Returns** `array{authenticated: bool, role: ?string, permissions: ?list<string>}`
 
+### plainPath()
+
+```php
+public static function plainPath(string $path): string
+```
+
+The path with its placeholders' patterns taken out, `/a/{id:\\d+}` as `/a/{id}`: for the API spec.
+
+**Parameters**
+
+- `$path` `string`
+
+**Returns** `string`
+
 ### exportAllAttributes()
 
 ```php

@@ -113,6 +113,15 @@ final class BackofficeController
 
 matches `/backoffice/orders.csv` and `/backoffice/orders.xlsx`, but not `/backoffice/orders-csv`. (From `src/Controllers/BackofficeController.php`; `Sheet` comes from the [Export plugin](https://github.com/io-framework/export).)
 
+A pattern after a colon says what a placeholder takes, as a regular expression: `{format:csv|xlsx}` takes only those two, and the method needs no check of its own. A path that does not fit matches no route and answers `404`. Braces inside the pattern are counted, so `{year:\d{4}}` works:
+
+```php
+#[Get('/a/{id:\d+}-{slug:[a-z0-9-]*}')]   // /a/26-omae-gotoki, not /a/x-omae
+public function anime(int $id, string $slug): View
+```
+
+The API spec names the placeholders without their patterns (`/a/{id}-{slug}`). A pattern that is no valid regular expression stops the app at boot.
+
 A parameter named like a placeholder receives its value. A scalar parameter (`string`, `int`, `float`, `bool`) is converted to its type, and a value that doesn't fit answers `422` instead of reaching the method: for `#[Get('/products/{id}')]` and `int $id`, `/products/abc` never calls the method. [Binding and validation](binding.md) has the details, including `#[Param('name')]` for a parameter named differently from its placeholder.
 
 Paths without placeholders are looked up first; paths with placeholders are then tried in the order the controllers were attached and the methods declared. `#[Get('/orders/open')]` therefore wins over `#[Get('/orders/{code}')]` wherever both are declared. Two routes with the same method and path, or the same placeholder pattern (`/products/{id}` and `/products/{slug}`), stop the app at boot with an `InvalidArgumentException` naming both actions.

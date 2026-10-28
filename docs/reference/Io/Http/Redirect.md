@@ -79,6 +79,23 @@ someone elsewhere afterwards.
 
 **Returns** [`Redirect`](Redirect.md)
 
+### target()
+
+```php
+public static function target(\Io\Http\Request $req, string $parameter = 'next'): ?string
+```
+
+The page to go back to, checked as back() checks it, or null: for the hidden field a login form carries on
+(`<input type="hidden" name="next" value="{{ Redirect::target($this->request) }}">`) and for a link to the
+registration that keeps it.
+
+**Parameters**
+
+- `$req` [`Request`](Request.md)
+- `$parameter` `string`
+
+**Returns** `?string`
+
 ### isLocal()
 
 ```php
