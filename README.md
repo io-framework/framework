@@ -1067,6 +1067,9 @@ gets the element class there, in views, Live templates and plain PHP files alike
 - `@section('name')` ... `@endsection` / `@yield('name')`, the same as `$this->startSection('name')` /
   `$this->endSection()` / `$this->section('name', required: false)`: named content blocks a layout pulls in,
   e.g. for per-page `<head>` scripts.
+- `@include ('Partials/Poster', ['src' => $src])`, the same as `$this->include('Partials/Poster', [...])`: another
+  view with its own `@model`, rendered here without a layout, for markup that repeats. The check reports an
+  include whose view is not there; Live templates take it too.
 - `$this->assetTags()` / `$this->layoutAssetTags()`: `<link>`/`<script>` tags for the current view's own
   sibling `.css`/`.js` (`Shop/Product.css` next to `Shop/Product.php`), and for the layout's own, if
   either has one.

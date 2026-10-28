@@ -31,7 +31,7 @@ namespace Io\View;
 class Compiler
 {
     /** Directives that take an expression in parentheses, and those that take none. */
-    private const WITH_EXPRESSION = ['if', 'elseif', 'foreach', 'use', 'model', 'section', 'yield'];
+    private const WITH_EXPRESSION = ['if', 'elseif', 'foreach', 'use', 'model', 'section', 'yield', 'include'];
 
     private const WITHOUT = ['else', 'endif', 'endforeach', 'endsection'];
 
@@ -40,6 +40,9 @@ class Compiler
 
     /** What the messages call the file. */
     protected const string NOUN = 'view';
+
+    /** What `@include (...)` calls: the View's include(), a Live template's closure */
+    protected const string INCLUDE = '$this->include';
 
     /** PHP's own types, as a parameter takes them; any other lower-case name is a PHPDoc type (list, scalar). */
     private const NATIVE = ['array', 'bool', 'callable', 'false', 'float', 'int', 'iterable', 'mixed', 'null', 'object', 'string', 'true'];
@@ -141,7 +144,7 @@ class Compiler
     private function trims(array $found, int $at, ?array $next): array
     {
         $kind = $found['kind'];
-        if (!in_array($kind, ['use', 'model', 'code'], true) && !($kind === 'directive' && ($found['name'] ?? '') !== 'yield')) {
+        if (!in_array($kind, ['use', 'model', 'code'], true) && !($kind === 'directive' && !in_array($found['name'] ?? '', ['yield', 'include'], true))) {
             return ['', ''];
         }
         $before = '';
@@ -178,6 +181,8 @@ class Compiler
             $found['kind'] === 'echo' => "<?= $expression$newline ?>",
             // A section is Html: it prints as it is
             $found['kind'] === 'directive' && ($found['name'] ?? '') === 'yield' => "<?= \$this->section($expression)$newline ?>",
+            // Another view's markup, as Html
+            $found['kind'] === 'directive' && ($found['name'] ?? '') === 'include' => '<?= ' . static::INCLUDE . "($expression)$newline ?>",
             $found['kind'] === 'directive' && ($found['name'] ?? '') === 'section' => "<?php \$this->startSection($expression) ?>",
             $found['kind'] === 'directive' && ($found['name'] ?? '') === 'endsection' => '<?php $this->endSection() ?>',
             default => match ($found['kind']) {
@@ -287,6 +292,7 @@ class Compiler
                 'use' => 'a class: @use (App\\Status)',
                 'model' => 'a type: @model (App\\Models\\Product)',
                 'section', 'yield' => "a name: @$name ('title')",
+                'include' => "a view: @include ('Poster', ['src' => \$src])",
                 default => "a condition: @$name (\$ok)",
             });
             // Still a block, so its end is no second problem

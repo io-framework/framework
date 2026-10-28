@@ -7,6 +7,7 @@ use Io\Attributes\Inject;
 use Io\Enums\RouteType;
 use Io\Exceptions\NotFoundException;
 use Io\Http\{PublicFileServer, Redirect, Request, Response, ResultRenderer, View};
+use Io\View\Partials;
 use Io\OpenAPI\OpenAPIEndpoint;
 use Io\Options\{CsrfOptions, FileSystemOptions, RendererOptions};
 use Io\Plugin\{ArgumentBinder, ClientAsset, Endpoint, Fallback, Guard, PluginRegistry, Renderer, ResponseHook, RouteAttributeCompiler, ViewHelpers};
@@ -116,6 +117,7 @@ class Router
         $this->renderers = $this->plugins->hooks(Renderer::class);
         $this->viewHelpers = $this->plugins->viewHelpers();
         $container?->set(new ViewHelpers($this->viewHelpers));
+        $container?->set(new Partials($this->renderPartial(...)));
 
         if ($preloadedCache !== null) {
             $this->importPlans($preloadedCache);
@@ -579,6 +581,18 @@ class Router
             'type' => is_string($type) ? $type : 'json',
             'options' => is_array($options) ? Arr::stringKeyed($options) : null,
         ]);
+    }
+
+    /** A view without layout as markup, set up as a page's view is: for Partials */
+    private function renderPartial(View $view, ?Request $req): string
+    {
+        $this->injector->injectReflected($view);
+        if ($req !== null) {
+            $view->setRequest($req);
+        }
+        $view->setHelpers($this->viewHelpers);
+        $view->setAssetsPath($this->fileSystemOptions->assetsPath);
+        return $view->render();
     }
 
     /** @internal The error page App renders for a browser navigation (RendererOptions::$errorView) */

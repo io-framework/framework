@@ -87,4 +87,15 @@ final class CheckTest extends TestCase
             rmdir($root);
         }
     }
+
+    public function testAnIncludeOfAViewThatIsNotThereIsAProblem(): void
+    {
+        $views = dirname(__DIR__, 2) . '/Fixtures/Views';
+        $source = "<p>\n@include ('Partials/Badge', ['label' => 'a', 'hot' => false])\n@include ('Partials/Nope')\n@include (\$name)\n</p>\n";
+
+        $this->assertSame(
+            [['line' => 3, 'message' => "@include ('Partials/Nope'): there is no view Partials/Nope.php", 'severity' => 'error']],
+            Check::includes($source, [$views]),
+        );
+    }
 }

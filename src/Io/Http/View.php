@@ -167,6 +167,29 @@ class View
     }
 
     /**
+     * Another view, rendered here without a layout, with $model: what `@include ('Poster', ['src' => $src])`
+     * calls. It is found as a view is (`Partials/Poster` for a subdirectory), sees the same helpers, request and
+     * CSRF token, and is checked by io-check like any view.
+     */
+    public function include(string $view, mixed $model = null): Html
+    {
+        $partial = new View($view, $model, partial: true, directory: $this->directory);
+        if (isset($this->env)) {
+            $partial->env = $this->env;
+        }
+        if (isset($this->csrf)) {
+            $partial->csrf = $this->csrf;
+        }
+        $partial->request = $this->request;
+        $partial->helpers = $this->helpers;
+        $partial->assetsPath = $this->assetsPath;
+        $partial->ioJsPath = $this->ioJsPath;
+        $partial->ioJsAttributes = $this->ioJsAttributes;
+        $partial->pluginAssetUrls = $this->pluginAssetUrls;
+        return new Html($partial->render());
+    }
+
+    /**
      * `$this->t('key')` and any other helper a plugin registered.
      * @param list<mixed> $arguments
      */

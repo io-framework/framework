@@ -57,13 +57,45 @@ final class Check
     public static function problems(string $root): array
     {
         $problems = [];
+        $directories = self::directories($root);
         foreach (self::views($root) as $file) {
-            foreach (self::inView((string) file_get_contents($file), $file) as $problem) {
+            $source = (string) file_get_contents($file);
+            foreach (self::inView($source, $file) as $problem) {
+                $problems[] = ['file' => $file] + $problem;
+            }
+            foreach (self::includes($source, $directories) as $problem) {
                 $problems[] = ['file' => $file] + $problem;
             }
         }
         foreach (self::checks($root) as $checks) {
             array_push($problems, ...$checks->problems());
+        }
+        return $problems;
+    }
+
+    /**
+     * @internal An `@include ('Name', ...)` whose view is in none of $directories, at its line. A name that is no
+     * plain string (built at runtime) is left to the render.
+     *
+     * @param list<string> $directories
+     * @return list<array{line: int, message: string, severity: 'error'}>
+     */
+    public static function includes(string $source, array $directories): array
+    {
+        $compiler = new Compiler($source);
+        $problems = [];
+        foreach ($compiler->found as $found) {
+            if ($found['kind'] !== 'directive' || ($found['name'] ?? '') !== 'include' || !isset($found['expression'])) {
+                continue;
+            }
+            [$from, $to] = $found['expression'];
+            if (preg_match('/^\s*([\'"])([\w\/.-]+)\1\s*(,|$)/', substr($source, $from, $to - $from), $m) !== 1) {
+                continue;
+            }
+            $exists = array_filter($directories, static fn (string $directory): bool => is_file("$directory/{$m[2]}.php"));
+            if ($exists === []) {
+                $problems[] = ['line' => $compiler->line($found['start']), 'message' => "@include ('{$m[2]}'): there is no view {$m[2]}.php", 'severity' => 'error'];
+            }
         }
         return $problems;
     }

@@ -280,6 +280,23 @@ public function setPluginAssetUrls(array $urls): void
 
 - `$urls` `list<string>`
 
+### include()
+
+```php
+public function include(string $view, mixed $model = null): \Io\Html
+```
+
+Another view, rendered here without a layout, with $model: what `@include ('Poster', ['src' => $src])`
+calls. It is found as a view is (`Partials/Poster` for a subdirectory), sees the same helpers, request and
+CSRF token, and is checked by io-check like any view.
+
+**Parameters**
+
+- `$view` `string`
+- `$model` `mixed`
+
+**Returns** [`Html`](../Html.md)
+
 ### __call()
 
 ```php

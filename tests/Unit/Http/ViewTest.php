@@ -385,4 +385,20 @@ final class ViewTest extends TestCase
             $this->assertSame(2, View::origin($e)[1] ?? null);
         }
     }
+
+    public function testIncludeRendersAnotherViewWithItsModelAndEscaping(): void
+    {
+        $this->configureRenderer();
+        $html = (new View('WithBadges', partial: true))->render();
+
+        $this->assertStringContainsString('<span class="badge">&lt;b&gt;new&lt;/b&gt; <i>hot</i> </span>', $html);
+        $this->assertStringContainsString('<span class="badge">old</span>', $html);
+    }
+
+    public function testIncludeOfAMissingViewNamesIt(): void
+    {
+        $this->configureRenderer();
+        $this->expectExceptionMessage('Partials/Nope.php');
+        (new View('Missing', partial: true))->include('Partials/Nope');
+    }
 }

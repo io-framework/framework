@@ -116,6 +116,7 @@ Views can live in subdirectories: `views/Shop/Catalog.php` is `new View('Shop/Ca
 | `@model (Type)` | the type of `$model` |
 | `@section('name')` ... `@endsection` | the output in between as a section, for the layout |
 | `@yield('name')` | in the layout: a section's content, as it is |
+| `@include ('Partials/Poster', ['src' => $src])` | another view here, with that model and no layout |
 
 - A directive starts a line or follows whitespace, `>` or `}}`. So `hello@sonnenkorn.test`, `@media` in a `<style>` block and attributes like `@click` stay text. Use `@@` where an `@` that should stay text follows a space.
 - A condition may span lines and contain parentheses and strings: `@if (in_array('a)', $tags, true))` works.
@@ -126,6 +127,16 @@ Views can live in subdirectories: `views/Shop/Catalog.php` is `new View('Shop/Ca
 - The body of `@code` is PHP only. It ends at the first `@endcode` outside its strings and comments; the last statement needs no `;`.
 - A view has no namespace: names resolve from the root (`Bakery\Models\OrderStatus::Ready`), through a `use` statement in PHP, or through `@use`.
 - `classes('order', ['late' => $order->pickupDate < $today])` builds a `class` value from strings and conditions, each class once, in every view without an import; outside views it is `Io\classes()`.
+
+### @include
+
+Markup that repeats goes into a view of its own and comes in with `@include`: the name as for `new View()`, under the views directory (`Partials/Poster` is `views/Partials/Poster.php`), and its model as the second argument.
+
+```
+@include ('Partials/Poster', ['src' => $product->image, 'alt' => $product->name])
+```
+
+The included view has its own `@model`, sees the same helpers, request and CSRF token, and renders without a layout. It is escaped as any view is and prints as it is (`Html`). The check reads it like any other view and reports an `@include` whose view is not there. `$this->include('Partials/Poster', [...])` is the same in PHP. Live templates take `@include` too; an event (`data-on-click`) inside the included view is not wired, so events stay in the component's template.
 
 ### @model
 
