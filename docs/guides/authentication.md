@@ -332,7 +332,7 @@ It is on as soon as `CsrfOptions::$secret` is set. Then every `POST`, `PUT`, `PA
 - **Issued**: every response that renders a `View` sets the token cookie (`csrf_token`), or keeps a still-valid one.
 - **Forms**: `{{ $this->csrf->field() }}` in the template writes a hidden `_csrf` field.
 - **`fetch()`**: a page that loads `io.js` (`{{ $this->ioJsTag() }}` in the layout, see [Views](views.md#iojs)) adds the `X-CSRF-Token` header to every same-origin `POST`, `PUT`, `PATCH` and `DELETE` on its own. Without it, read the cookie and send the header yourself.
-- **Bound to the session**: with `JWTOptions::$cookieName` set, a token is signed for the session cookie it was issued with, so a token from one session doesn't work in another. A response that signs in or out gets a fresh token with it.
+- **Bound to the session**: with `JWTOptions::$cookieName` set, a token is signed for the session cookie it was issued with, so a token from one session doesn't work in another. A response that signs in or out gets a fresh token with it. A session middleware's principal (`$req->principalFromCookie`) binds the token to its sign-in id (`SignOuts::CLAIM`) instead, and the next rendered view after a sign-in carries a new one.
 
 | [`CsrfOptions`](../reference/Io/Options/CsrfOptions.md) | Default | |
 |---|---|---|

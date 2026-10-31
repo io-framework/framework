@@ -14,10 +14,12 @@ use Io\Support\{Base64Url, FiberLocal};
  * cross-site request rides the cookie jar but can't read the cookie to
  * repeat it, so the two values never match.
  *
- * The signature also covers the session cookie (JWTOptions::$cookieName): a
- * token someone fetched for themselves and planted in a victim's cookie jar
- * (from a sibling subdomain, say) doesn't verify against the victim's session.
- * A login or logout changes the session, so the next rendered view mints a new token.
+ * The signature also covers the sign-in: the session cookie
+ * (JWTOptions::$cookieName), else the sign-in id (SignOuts::CLAIM) of the
+ * principal a session middleware signed in by cookie. A token someone fetched for themselves and planted
+ * in a victim's cookie jar (from a sibling subdomain, say) doesn't verify
+ * against the victim's sign-in. A login or logout changes the sign-in, so the
+ * next rendered view mints a new token.
  *
  * A container singleton: $currentToken is per-request state set by
  * issueFor() (Router::renderView) and read by token()/field() from inside
@@ -123,11 +125,21 @@ class Csrf
         return hash_equals($cookieToken, $submitted) && self::isValidToken($cookieToken, self::session($req));
     }
 
-    /** The session cookie (JWTOptions::$cookieName) $req carries, '' without one: what its token is bound to. */
+    /**
+     * What $req's token is bound to: the session cookie (JWTOptions::$cookieName) when it carries one, else the
+     * sign-in id (SignOuts::CLAIM) of a principal a cookie signed in (a session middleware's), else '' while signed
+     * out. The JWT cookie comes first so followSession() and withCsrf() keep binding to it; a bearer token is no
+     * cookie the browser sends on its own, so its principal needs no binding.
+     */
     private static function session(Request $req): string
     {
         $sessionCookie = App::getConfig(JWTOptions::class)->cookieName;
-        return $sessionCookie !== null ? ($req->cookies[$sessionCookie] ?? '') : '';
+        $cookie = $sessionCookie !== null ? ($req->cookies[$sessionCookie] ?? '') : '';
+        if ($cookie !== '' || !$req->principalFromCookie) {
+            return $cookie;
+        }
+        $signIn = $req->principal[SignOuts::CLAIM] ?? null;
+        return is_string($signIn) ? $signIn : '';
     }
 
     private static function submittedToken(Request $req, CsrfOptions $opts): ?string

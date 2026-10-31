@@ -557,8 +557,9 @@ class Router
             if ($layout === null || is_string($layout)) {
                 $result->useRouteLayout($layout);
             }
-            // The form shown again for an invalid #[Body(validate: false)] DTO: the page, but no 200
-            $invalid = $req->bodyForm !== null ? !$req->bodyForm->valid : ($req->bodyDto !== null && ArgumentResolver::errors($req->bodyDto) !== []);
+            // The form shown again for an invalid #[Body(validate: false)] DTO: the page, but no 200 (a form no
+            // request filled, on a GET, shows no errors and stays a 200)
+            $invalid = $req->bodyForm !== null ? $req->bodyForm->errors !== [] : ($req->bodyDto !== null && ArgumentResolver::errors($req->bodyDto) !== []);
             if ($invalid && $res->getStatus() === 200) {
                 $res->status(422);
             }

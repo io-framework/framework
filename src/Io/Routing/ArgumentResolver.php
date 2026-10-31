@@ -100,7 +100,7 @@ final class ArgumentResolver
             return null;
             // @codeCoverageIgnoreEnd
         }
-        $form = Hydrator::form($class, $req->body());
+        $form = Hydrator::form($class, $req->body(), self::submitted($req));
         $req->bodyDto = $form->dto;
         $req->bodyForm = $form;
         if (($arg['validate'] ?? false) && !$form->valid) {
@@ -123,10 +123,16 @@ final class ArgumentResolver
             return null;
             // @codeCoverageIgnoreEnd
         }
-        $form = Hydrator::form($class, $req->body());
+        $form = Hydrator::form($class, $req->body(), self::submitted($req));
         $req->bodyDto = $form->dto;
         $req->bodyForm = $form;
         return $form;
+    }
+
+    /** Whether $req submits a form: a GET or HEAD carries no body, so its Form shows no errors yet. */
+    private static function submitted(Request $req): bool
+    {
+        return !in_array($req->method, ['GET', 'HEAD'], true);
     }
 
     /**

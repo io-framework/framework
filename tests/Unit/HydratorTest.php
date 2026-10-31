@@ -68,6 +68,29 @@ final class HydratorTest extends TestCase
         $this->assertArrayHasKey('quantity', $form->errors);
     }
 
+    public function testAFormNoRequestFilledShowsOnlyItsFailEntries(): void
+    {
+        $empty = new Form(new PlainSignup());
+
+        $this->assertFalse($empty->filled);
+        $this->assertSame([], $empty->errors);
+        $this->assertFalse($empty->valid);
+
+        $empty->fail('email', 'Taken.');
+        $this->assertSame(['email' => ['Taken.']], $empty->errors);
+
+        $unsubmitted = Hydrator::form(PlainSignup::class, [], filled: false);
+        $this->assertSame([], $unsubmitted->errors);
+    }
+
+    public function testAFilledFormShowsEveryError(): void
+    {
+        $form = Hydrator::form(PlainSignup::class, []);
+
+        $this->assertTrue($form->filled);
+        $this->assertArrayHasKey('email', $form->errors);
+    }
+
     public function testTheFormIsGenericOverItsDto(): void
     {
         $this->assertInstanceOf(Form::class, Hydrator::form(PlainAddress::class, []));

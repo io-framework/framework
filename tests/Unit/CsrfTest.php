@@ -3,7 +3,7 @@
 namespace Io\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use Io\{App, Csrf};
+use Io\{App, Csrf, SignOuts};
 use Io\Http\{Request, Response};
 use Io\Options\{CsrfOptions, JWTOptions};
 
@@ -119,6 +119,79 @@ final class CsrfTest extends TestCase
 
         // Signing in or out changes the session: the old token is no longer valid
         $this->assertFalse(Csrf::isValidToken($victimToken));
+    }
+
+    public function testATokenIsBoundToTheSignInOfAPrincipalASessionCookieSignedIn(): void
+    {
+        // A session middleware: no JWT cookie, the principal names its sign-in in 'sid'
+        $victim = $this->captureRequest();
+        $victim->principal = ['sub' => 'ada', SignOuts::CLAIM => 'victim-sign-in'];
+        $victim->principalFromCookie = true;
+
+        // A token minted while signed out, or for the attacker's own sign-in, fails for the victim
+        $planted = [Csrf::generateToken(), Csrf::generateToken('attacker-sign-in')];
+        foreach ($planted as $token) {
+            $victim->cookies['csrf_token'] = $token;
+            $victim->headers['X-CSRF-Token'] = $token;
+            $this->assertFalse((new Csrf())->verify($victim));
+        }
+
+        // The victim's own token works
+        $own = Csrf::generateToken('victim-sign-in');
+        $victim->cookies['csrf_token'] = $own;
+        $victim->headers['X-CSRF-Token'] = $own;
+        $this->assertTrue((new Csrf())->verify($victim));
+
+        // A view rendered for the victim mints a token for that sign-in, not the signed-out one
+        $victim->cookies = [];
+        $res = new Response();
+        (new Csrf())->issueFor($victim, $res);
+        $this->assertTrue(Csrf::isValidToken($res->queuedCookie('csrf_token'), 'victim-sign-in'));
+        $this->assertFalse(Csrf::isValidToken($res->queuedCookie('csrf_token')));
+    }
+
+    public function testTheLoginFormIsPostedSignedOutAndTheNextViewMintsATokenForTheSignIn(): void
+    {
+        // The login page was rendered signed out: its token belongs to no sign-in, and the login posts it so
+        $token = Csrf::generateToken();
+        $login = $this->captureRequest();
+        $login->cookies['csrf_token'] = $token;
+        $login->headers['X-CSRF-Token'] = $token;
+        $this->assertTrue((new Csrf())->verify($login));
+
+        // After the redirect the session middleware signs the request in: the old token no longer fits
+        $next = $this->captureRequest();
+        $next->cookies['csrf_token'] = $token;
+        $next->principal = [SignOuts::CLAIM => 'new-sign-in'];
+        $next->principalFromCookie = true;
+        $res = new Response();
+        (new Csrf())->issueFor($next, $res);
+        $this->assertTrue(Csrf::isValidToken($res->queuedCookie('csrf_token'), 'new-sign-in'));
+    }
+
+    public function testAJwtCookieAndABearerPrincipalKeepTheirBinding(): void
+    {
+        App::create()->configure(function (JWTOptions $opts) {
+            $opts->cookieName = 'auth_token';
+        });
+
+        // The JWT cookie stays what the token is bound to, even when its payload carries a 'sid'
+        $req = $this->captureRequest();
+        $req->cookies['auth_token'] = 'jwt-cookie';
+        $req->principal = [SignOuts::CLAIM => 'sid-in-the-jwt'];
+        $req->principalFromCookie = true;
+        $token = Csrf::generateToken('jwt-cookie');
+        $req->cookies['csrf_token'] = $token;
+        $req->headers['X-CSRF-Token'] = $token;
+        $this->assertTrue((new Csrf())->verify($req));
+
+        // A bearer token is no cookie the browser sends on its own: its 'sid' binds nothing
+        $bearer = $this->captureRequest();
+        $bearer->principal = [SignOuts::CLAIM => 'sid-in-the-jwt'];
+        $token = Csrf::generateToken();
+        $bearer->cookies['csrf_token'] = $token;
+        $bearer->headers['X-CSRF-Token'] = $token;
+        $this->assertTrue((new Csrf())->verify($bearer));
     }
 
     public function testAResponseThatSignsSomeoneInCarriesATokenForTheNewSession(): void

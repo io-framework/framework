@@ -44,6 +44,22 @@ final class FormBindingTest extends IntegrationTestCase
         $this->assertStringContainsString('errors for nope', $output);
     }
 
+    public function testThePageOnAGetShowsNoErrorsAndAnswers200(): void
+    {
+        $output = $this->dispatch('GET', '/forms/page');
+
+        $this->assertSame(200, $this->lastResponse?->status());
+        $this->assertStringContainsString('0 errors for', $output);
+    }
+
+    public function testAnEmptySubmitShowsTheRequiredErrors(): void
+    {
+        $output = $this->dispatch('POST', '/forms/page', [], []);
+
+        $this->assertSame(422, $this->lastResponse?->status());
+        $this->assertStringNotContainsString('<p>0 errors', $output);
+    }
+
     public function testAPlainReadonlyDtoIsBuiltAndValidated(): void
     {
         $this->assertSame(['product' => 'pretzel', 'quantity' => 2], json_decode($this->dispatch('POST', '/forms/line', [], ['product' => ' pretzel ', 'quantity' => 2]), true));

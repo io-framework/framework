@@ -2,7 +2,7 @@
 
 namespace Io\Tests\Fixtures\Controllers;
 
-use Io\Attributes\{Body, Controller, Post};
+use Io\Attributes\{Body, Controller, Get, Post};
 use Io\Form;
 use Io\Http\View;
 use Io\Tests\Fixtures\DTO\{PlainSignup, PromotedLine};
@@ -22,6 +22,13 @@ final class FormsController
 
     #[Post('/page')]
     public function page(#[Body(of: PlainSignup::class)] Form $form): View
+    {
+        return new View('FormPage', $form, partial: true);
+    }
+
+    /** The empty page: a GET fills nothing, so its form shows no errors */
+    #[Get('/page')]
+    public function emptyPage(#[Body(of: PlainSignup::class)] Form $form): View
     {
         return new View('FormPage', $form, partial: true);
     }

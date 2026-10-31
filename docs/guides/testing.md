@@ -90,7 +90,7 @@ Every test starts with a fresh app ([`App::reset()`](../reference/Io/App.md#rese
 | `withFile($field, $name, $contents, $type)` | an uploaded file, named as in the form (`picture`, `photos[]`, `doc[a]`) |
 | `withCookie($name, $value)` | a cookie for this request |
 | `withJwt([...])` | a bearer token for the payload, signed with the configured `JWTOptions` |
-| `withCsrf()` | a valid CSRF cookie and header, bound to the session cookie the request carries; nothing when CSRF is off |
+| `withCsrf()` | a valid CSRF cookie and header, bound to the session cookie the request carries (`withCsrf($sid)` for a session middleware's sign-in id); nothing when CSRF is off |
 | `withHttps()` | a request that arrived over HTTPS |
 | `asNavigation()` | `Sec-Fetch-Mode: navigate`, what a browser sends when it loads a page |
 

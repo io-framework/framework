@@ -448,7 +448,9 @@ See [Exception Handling](#exception-handling). The messages are English by defau
 A `#[Body]` DTO needs no trait any more: `Io\Hydrator` builds a plain class (public properties, or a `readonly`
 one with constructor promotion) under the rules below, and `#[Body(of: LoginForm::class)] Form $form` hands a
 method the DTO with its errors (`$form->dto`, `$form->errors`, `$form->valid`, `$form->fail()`) instead of a
-`422`. `#[Trim]` on a property, or on the class with `#[Trim(false)]` for exceptions, trims the text before the
+`422`. A form no request filled (`new Form(new LoginForm())` for the empty page, or one bound on a `GET`) has
+`$form->filled` false and shows no rule errors, only `fail()` entries, so a view prints `$form->errors` as it
+is. `#[Trim]` on a property, or on the class with `#[Trim(false)]` for exceptions, trims the text before the
 rules run. `FromArray` keeps working as described here and uses the same Hydrator.
 
 `#[Body]`/`#[Body(of: ...)]` construct your DTO directly as `new YourDTO($req->body())` (see
@@ -822,10 +824,12 @@ cookie (`CsrfOptions::$cookieName`, default `csrf_token`) on every rendered `Vie
 (`CsrfOptions::$fieldName`, default `_csrf`, for a classic no-JS `<form>`). A mismatch, missing token, or
 expired token throws `ForbiddenException` (403).
 
-With `JWTOptions::$cookieName` set, each token is signed for the session cookie it was issued with. A
-token someone fetched for their own session and planted in another browser (from a sibling subdomain,
-say) is rejected there. Signing in or out changes the session, so the next rendered view issues a new
-token.
+With `JWTOptions::$cookieName` set, each token is signed for the session cookie it was issued with; an app
+signed in by a session middleware (`$req->principalFromCookie`) gets its tokens signed for the principal's
+sign-in id (`SignOuts::CLAIM`, `sid`). A token someone fetched for their own session and planted in another
+browser (from a sibling subdomain, say) is rejected there. Signing in or out changes the session, so the next
+rendered view issues a new token; the login form itself is posted signed out, with the token of the signed-out
+page.
 
 Inside a view template, `$this->csrf` renders the classic no-JS `<form>` half of that pattern:
 

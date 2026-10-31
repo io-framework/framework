@@ -27,6 +27,8 @@ final class TestRequest
 
     private bool $csrf = false;
 
+    private ?string $csrfSignIn = null;
+
     private ?bool $https = null;
 
     /** @var array<array-key, mixed> */
@@ -110,10 +112,15 @@ final class TestRequest
         return $this->withHeader('Authorization', App::getConfig(JWTOptions::class)->tokenType . ' ' . JWT::encode(Arr::stringKeyed($payload)));
     }
 
-    /** Carries a valid CSRF cookie + header pair (resolved at send(), after the app is configured); a no-op when CSRF isn't configured. */
-    public function withCsrf(): self
+    /**
+     * Carries a valid CSRF cookie + header pair (resolved at send(), after the app is configured); a no-op when CSRF
+     * isn't configured. The token is bound to the JWT cookie this request carries; an app signed in by a session
+     * middleware passes the sign-in id ('sid') its principal will carry.
+     */
+    public function withCsrf(?string $signIn = null): self
     {
         $this->csrf = true;
+        $this->csrfSignIn = $signIn;
         return $this;
     }
 
@@ -140,7 +147,8 @@ final class TestRequest
             if (isset($opts->secret)) {
                 // Minted after the cookies are in place: the token is bound to the session cookie this request carries
                 $sessionCookie = App::getConfig(JWTOptions::class)->cookieName;
-                $token = Csrf::generateToken($sessionCookie !== null ? $cookies[$sessionCookie] ?? '' : '');
+                $session = $sessionCookie !== null ? $cookies[$sessionCookie] ?? '' : '';
+                $token = Csrf::generateToken($session !== '' ? $session : $this->csrfSignIn ?? '');
                 $cookies[$opts->cookieName] = $token;
                 $headers[$opts->headerName] = $token;
             }

@@ -153,7 +153,9 @@ public function login(#[Body(of: LoginForm::class)] Form $form): View|Redirect
 }
 ```
 
-`$form->dto` is the `LoginForm`, `$form->errors` maps each field to its messages, `$form->valid` says whether there are none, and `fail()` adds one. The errors are worked out once and again after `fail()`. PHPStan knows `$form->dto` is a `LoginForm` from the attribute, and the API spec describes the body as a `LoginForm`.
+`$form->dto` is the `LoginForm`, `$form->errors` maps each field to its messages, `$form->valid` says whether there are none, and `fail()` adds one. The errors are worked out once and again after `fail()`.
+
+The empty page shows the same view with `new Form(new LoginForm())`. No request filled that form (`$form->filled` is false, as for one bound on a `GET`), so `$form->errors` holds only `fail()` entries and no "required" messages; the view prints `$form->errors` without asking whether the form was sent. `$form->valid` still says whether the DTO passes its rules. PHPStan knows `$form->dto` is a `LoginForm` from the attribute, and the API spec describes the body as a `LoginForm`.
 
 ### FromArray
 

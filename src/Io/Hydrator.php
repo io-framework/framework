@@ -38,12 +38,13 @@ final class Hydrator
      * @template T of object
      * @param class-string<T> $class
      * @param array<array-key, mixed> $data
+     * @param bool $filled Whether a request filled it (a submit, not a GET): see Form::$filled
      * @return Form<T>
      */
-    public static function form(string $class, array $data): Form
+    public static function form(string $class, array $data, bool $filled = true): Form
     {
         [$dto, $failures] = self::make($class, $data);
-        return new Form($dto, $failures);
+        return new Form($dto, $failures, $filled);
     }
 
     /**

@@ -19,7 +19,7 @@ Io's defaults are chosen to fail closed: a missing secret stops the app instead 
 **Authentication and CSRF**
 
 - JWTs are HS256 only, must carry a future `exp`, and are compared in constant time. Secrets shorter than 32 bytes are refused.
-- CSRF protection covers every `POST`, `PUT`, `PATCH` and `DELETE` once its secret is set. Tokens are bound to the session cookie, and a sign-in or sign-out issues a new one.
+- CSRF protection covers every `POST`, `PUT`, `PATCH` and `DELETE` once its secret is set. Tokens are bound to the session cookie or a session middleware's sign-in id, and a sign-in or sign-out issues a new one.
 - Signing in by cookie without CSRF protection is refused: every request fails until `CsrfOptions::$secret` is set.
 - On a `#[SkipCsrf]` route, a session cookie doesn't sign the user in for state-changing methods.
 - `#[Permissions]` without a provider denies. A `#[Middleware]` class that doesn't exist or isn't a `MiddlewareBase` stops the route compilation, so a route never runs without the check it declares.
