@@ -432,7 +432,7 @@ class View
 
     /**
      * The compiled template: [its file in the cache directory, null], or [null, its code] without a cache directory.
-     * Rebuilt when the template changes, or Io (this file) does.
+     * Rebuilt when the template's modification time changes (to any other, older too), or Io (this file) does.
      * @return array{0: ?string, 1: string}
      */
     private static function compiled(string $file): array
@@ -446,8 +446,11 @@ class View
             return [null, self::$compiled[$file][1]];
         }
         $directory = $fileSystem->getCacheDirectory() . '/views';
-        $compiled = $directory . '/' . md5($file . '|' . filemtime(__FILE__) . '|' . filemtime(self::compilerFile())) . '.php';
-        if (!is_file($compiled) || filemtime($compiled) < $modified) {
+        // The template's own modification time is part of the name: a deploy that brings a template with an
+        // older time than the compiled copy (rsync -a, tar, an image layer) still gets it compiled again
+        $key = $file . '|' . $modified . '|' . filemtime(__FILE__) . '|' . filemtime(self::compilerFile());
+        $compiled = $directory . '/' . md5($key) . '.php';
+        if (!is_file($compiled)) {
             if (!is_dir($directory)) {
                 @mkdir($directory, 0775, true);
             }

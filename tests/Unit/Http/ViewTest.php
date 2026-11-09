@@ -140,6 +140,27 @@ final class ViewTest extends TestCase
         rmdir($cache);
     }
 
+    public function testATemplateWithAnOlderModificationTimeIsCompiledAgain(): void
+    {
+        // A deploy (rsync -a, tar) that brings a template whose time is older than its compiled copy
+        $root = sys_get_temp_dir() . '/io-stale-' . bin2hex(random_bytes(4));
+        mkdir("$root/views", 0777, true);
+        $template = "$root/views/Page.php";
+        file_put_contents($template, 'new');
+        touch($template, time() - 100);
+        $app = App::create();
+        $app->configure(fn (RendererOptions $opts) => $opts->directory = "$root/views");
+        $app->configure(fn (FileSystemOptions $fs) => $fs->cacheDirectory = "$root/cache");
+        $this->assertSame('new', (new View('Page', partial: true))->render());
+
+        file_put_contents($template, 'deployed');
+        touch($template, time() - 200);
+        clearstatcache();
+
+        $this->assertSame('deployed', (new View('Page', partial: true))->render());
+        exec('rm -rf ' . escapeshellarg($root));
+    }
+
     public function testFullRenderWrapsContentInLayoutAndFillsSections(): void
     {
         $this->configureRenderer('_Layout.php');
