@@ -330,8 +330,10 @@ class Router
         if (in_array($method, ['GET', 'HEAD'], true) && ($this->publicFileServer->serve($path, $res, $req) || $this->tryServeViewAsset($path, $res))) {
             return;
         }
+        // HEAD is GET without the body for endpoints too (Response::send() leaves it out)
+        $endpointMethod = $method === 'HEAD' ? 'GET' : $method;
         foreach ($this->endpoints as $endpoint) {
-            if ($endpoint->serve($method, $path, $req, $res)) {
+            if ($endpoint->serve($endpointMethod, $path, $req, $res)) {
                 return;
             }
         }

@@ -27,6 +27,16 @@ final class OpenAPIEndpointTest extends IntegrationTestCase
         $this->assertSame(['error' => 'Not found'], json_decode($output, true));
     }
 
+    public function testHeadOnTheSpecAnswersLikeGetWithoutTheBody(): void
+    {
+        $this->boot();
+
+        $output = $this->dispatch('HEAD', '/openapi/spec.json');
+
+        $this->assertSame(200, $this->lastResponse->status());
+        $this->assertSame('', $output);
+    }
+
     public function testSwaggerRouteServesTheBundledHtmlFile(): void
     {
         $this->boot();
