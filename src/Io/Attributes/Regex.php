@@ -5,7 +5,7 @@ namespace Io\Attributes;
 use Attribute;
 use Io\Validation\Rule;
 
-/** Validation: the value must match $pattern (a full PCRE pattern including delimiters). Numbers match by their text, null passes, lists, objects and bools never match. */
+/** Validation: the value must match $pattern (a full PCRE pattern including delimiters). Numbers match by their text, null and an empty string pass, lists, objects and bools never match. */
 #[Attribute(Attribute::TARGET_PROPERTY)]
 class Regex implements Rule
 {
@@ -17,7 +17,8 @@ class Regex implements Rule
 
     public function passes(mixed $value, object $dto): bool
     {
-        if ($value === null) {
+        // Nothing entered: #[NotBlank] decides whether that is allowed
+        if ($value === null || $value === '') {
             return true;
         }
 

@@ -123,6 +123,8 @@ final class AppBootstrapTest extends IntegrationTestCase
 
         $this->assertSame(['page' => 5, 'size' => 20, 'sort' => null], json_decode($this->request('GET', '/paging')->send()->body(), true));
         $this->assertSame(['page' => 2, 'size' => 20, 'sort' => 'name'], json_decode($this->request('GET', '/paging?page=2&sort=name')->send()->body(), true));
+        // A search form's empty field: the default, not a 422
+        $this->assertSame(['page' => 5, 'size' => 20, 'sort' => ''], json_decode($this->request('GET', '/paging?page=&size=&sort=')->send()->body(), true));
     }
 
     public function testAQueryAttributeScalarThatIsNoneOfItsTypeIs422(): void

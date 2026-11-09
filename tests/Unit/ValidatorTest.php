@@ -189,7 +189,7 @@ final class ValidatorTest extends TestCase
     public function testEveryFailingRuleOnAFieldReportsItsMessageInTheOrderTheRulesAreWritten(): void
     {
         $dto = new MultiRuleDTO();
-        $dto->code = ''; // fails both #[NotBlank] and #[Length(min: 3)]
+        $dto->code = ' '; // fails both #[NotBlank] and #[Length(min: 3)]
 
         $this->assertSame(
             ['This value should not be blank.', 'This value is too short. Minimum length is 3.'],

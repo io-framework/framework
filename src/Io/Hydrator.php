@@ -90,6 +90,14 @@ final class Hydrator
             }
             $property = $input['property'];
             $value = $input['trim'] && is_string($value) ? trim($value) : $value;
+            if (self::blank($property->getType(), $value)) {
+                // A form's empty field: null where null fits, else the default stays
+                if ($property->getType()?->allowsNull() === true) {
+                    $value = null;
+                } elseif ($property->hasDefaultValue()) {
+                    continue;
+                }
+            }
             [$fits, $value, $message] = self::fitting($property->getType(), $value);
             if (!$fits) {
                 // Left at its default, and a 422: never cast ("false" is no true, 2.7 no 2)
@@ -225,6 +233,14 @@ final class Hydrator
             }
             $value = $data[$name];
             $value = self::trims($param, $classTrim) && is_string($value) ? trim($value) : $value;
+            if (self::blank($param->getType(), $value)) {
+                // A form's empty field: null where null fits, else the default
+                if ($param->getType()?->allowsNull() === true) {
+                    $value = null;
+                } elseif ($param->isOptional()) {
+                    continue;
+                }
+            }
             [$fits, $value, $message] = self::fitting($param->getType(), $value);
             if (!$fits) {
                 $failures[$name][] = $message ?? 'Expected a value of type ' . $param->getType() . '.';
@@ -359,6 +375,20 @@ final class Hydrator
             $failure = $converted[2] !== null ? $converted : $failure;
         }
         return $failure;
+    }
+
+    /**
+     * Whether $value is a form's empty field ('') for a type that takes no text: browsers send '' for an empty
+     * input or an empty <select> option, which means "nothing" to a number, a bool or an enum.
+     */
+    private static function blank(?ReflectionType $type, mixed $value): bool
+    {
+        if ($value !== '' || $type === null) {
+            return false;
+        }
+        $names = $type instanceof ReflectionNamedType ? [$type->getName()]
+            : ($type instanceof ReflectionUnionType ? array_map(static fn (ReflectionType $t): string => $t instanceof ReflectionNamedType ? $t->getName() : '', $type->getTypes()) : ['string']);
+        return array_intersect($names, ['string', 'mixed']) === [];
     }
 
     /**

@@ -5,7 +5,7 @@ namespace Io\Attributes;
 use Attribute;
 use Io\Validation\Rule;
 
-/** Validation: a non-null property must be a syntactically valid email address. */
+/** Validation: a property that holds something (not null, not an empty string) must be a syntactically valid email address. */
 #[Attribute(Attribute::TARGET_PROPERTY)]
 class Email implements Rule
 {
@@ -15,7 +15,7 @@ class Email implements Rule
 
     public function passes(mixed $value, object $dto): bool
     {
-        return $value === null || filter_var($value, FILTER_VALIDATE_EMAIL) !== false;
+        return $value === null || $value === '' || filter_var($value, FILTER_VALIDATE_EMAIL) !== false;
     }
 
     public function message(mixed $value): string

@@ -3,7 +3,7 @@
 namespace Io\Tests\Unit;
 
 use Io\{Form, Hydrator};
-use Io\Tests\Fixtures\DTO\{PlainAddress, PlainSignup, PromotedLine};
+use Io\Tests\Fixtures\DTO\{OptionalFilters, PlainAddress, PlainSignup, PromotedLine};
 use PHPUnit\Framework\TestCase;
 
 final class HydratorTest extends TestCase
@@ -26,6 +26,26 @@ final class HydratorTest extends TestCase
 
         $this->assertSame(0, $form->dto->age);
         $this->assertSame(['age' => ['Expected a value of type int.']], $form->errors);
+    }
+
+    public function testEmptyFormFieldsCountAsMissingForOptionalFields(): void
+    {
+        $empty = ['minimum' => '', 'ratio' => '', 'priority' => '', 'page' => '', 'email' => '', 'name' => ''];
+        $form = Hydrator::form(OptionalFilters::class, $empty);
+
+        $this->assertTrue($form->valid, json_encode($form->errors) ?: '');
+        $this->assertNull($form->dto->minimum);
+        $this->assertNull($form->dto->ratio);
+        $this->assertNull($form->dto->priority);
+        $this->assertSame(3, $form->dto->page);
+        $this->assertSame('', $form->dto->email);
+    }
+
+    public function testAFilledOptionalFieldIsStillChecked(): void
+    {
+        $form = Hydrator::form(OptionalFilters::class, ['email' => 'nope', 'name' => 'ab']);
+
+        $this->assertSame(['email', 'name'], array_keys($form->errors));
     }
 
     public function testANestedPlainDtoIsBuiltAndItsErrorsArePrefixed(): void

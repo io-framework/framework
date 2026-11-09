@@ -198,6 +198,10 @@ final class ArgumentResolver
         if (!is_string($type)) {
             return $value;
         }
+        // A form's empty field (?page=) is no value for anything but text: as if it were missing
+        if ($value === '' && $type !== 'string' && $type !== 'mixed') {
+            $value = null;
+        }
         if ($value === null) {
             if (array_key_exists('default', $arg)) {
                 return $arg['default'];
