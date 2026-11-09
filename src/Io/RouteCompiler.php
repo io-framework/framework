@@ -152,7 +152,7 @@ final class RouteCompiler
 
         // Same method and path (or the same pattern): one of the two would never be reached
         $existing = $dynamic
-            ? array_find($dynamicRoutes[$httpMethod] ?? [], fn (array $other): bool => $other['regex'] === $plan['regex'])
+            ? array_find($dynamicRoutes[$httpMethod] ?? [], fn (array $other): bool => self::shape($other['path']) === self::shape($path))
             : $staticRoutes[$httpMethod][$path] ?? null;
         if ($existing !== null) {
             $other = is_string($existing['controller']) ? $existing['controller'] : $existing['controller']::class;
@@ -410,6 +410,19 @@ final class RouteCompiler
             throw new LogicException("Route $path: a placeholder pattern is no valid regex");
         }
         return "#^$regex$#";
+    }
+
+    /**
+     * The path as the requests it matches see it: placeholders without their names, `/u/{id}` and `/u/{slug}`
+     * both as `/u/{}`, `/u/{id:\\d+}` as `/u/{\\d+}`. Two routes of one shape: the second is never reached.
+     */
+    private static function shape(string $path): string
+    {
+        $shape = '';
+        foreach (self::pathPieces($path) as [$text, $name, $pattern]) {
+            $shape .= $name === null ? $text : '{' . ($pattern ?? '') . '}';
+        }
+        return $shape;
     }
 
     /** The path with its placeholders' patterns taken out, `/a/{id:\\d+}` as `/a/{id}`: for the API spec. */

@@ -5,7 +5,13 @@ namespace Io\Tests\Unit\Routing;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Io\RouteCompiler;
-use Io\Tests\Fixtures\Controllers\DuplicateRoutes\{StaticDuplicateController, DynamicDuplicateController, DynamicDuplicateAgainController};
+use Io\Tests\Fixtures\Controllers\DuplicateRoutes\{
+    ConstrainedPlaceholderController,
+    DynamicDuplicateAgainController,
+    DynamicDuplicateController,
+    RenamedPlaceholderController,
+    StaticDuplicateController,
+};
 
 final class DuplicateRouteTest extends TestCase
 {
@@ -21,6 +27,19 @@ final class DuplicateRouteTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Duplicate route GET /dup/{id}');
         (new RouteCompiler())->compile([DynamicDuplicateController::class, DynamicDuplicateAgainController::class]);
+    }
+
+    public function testOnlyAnotherPlaceholderNameIsStillADuplicate(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Duplicate route GET /dup/{slug}');
+        (new RouteCompiler())->compile([DynamicDuplicateController::class, RenamedPlaceholderController::class]);
+    }
+
+    public function testAnotherPlaceholderPatternIsNoDuplicate(): void
+    {
+        $plans = (new RouteCompiler())->compile([DynamicDuplicateController::class, ConstrainedPlaceholderController::class]);
+        $this->assertCount(2, $plans['dynamicRoutes']['GET']);
     }
 
     public function testTheSamePathUnderAnotherMethodIsNoDuplicate(): void
