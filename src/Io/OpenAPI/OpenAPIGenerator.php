@@ -564,7 +564,10 @@ class OpenAPIGenerator
                     $bodyOf = self::stringArg($args, 1, 'of');
                 }
             }
-            if ($kind === null && SchemaBuilder::isScalar($type) && $type !== 'number') {
+            // Without an attribute a scalar or a backed enum comes from the path or the query, as the router binds it
+            $bound = (SchemaBuilder::isScalar($type) && $type !== 'number')
+                || ($type !== null && is_subclass_of($type, \BackedEnum::class));
+            if ($kind === null && $bound) {
                 $kind = in_array($paramName, $placeholders[1], true) ? 'path' : 'query';
             }
 

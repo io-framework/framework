@@ -5,7 +5,7 @@ namespace Io\Tests\Integration;
 use Io\App;
 use Io\OpenAPI\OpenAPIGenerator;
 use Io\Options\OpenAPIOptions;
-use Io\Tests\Fixtures\Controllers\DocumentedController;
+use Io\Tests\Fixtures\Controllers\{ArgBindingController, DocumentedController};
 
 final class OpenAPIGeneratorTest extends IntegrationTestCase
 {
@@ -14,6 +14,22 @@ final class OpenAPIGeneratorTest extends IntegrationTestCase
         $app = App::create();
         $app->attach([DocumentedController::class]);
         return (new OpenAPIGenerator($app->getRouter()))->generate();
+    }
+
+    public function testBackedEnumParametersWithoutAnAttributeAreDescribed(): void
+    {
+        $app = App::create();
+        $app->attach([ArgBindingController::class]);
+        $paths = (new OpenAPIGenerator($app->getRouter()))->generate()['paths'];
+
+        $path = $paths['/argbinding/enum/{status}']['get']['parameters'];
+        $this->assertSame(['status'], array_column($path, 'name'));
+        $this->assertSame('path', $path[0]['in']);
+        $this->assertArrayHasKey('enum', $path[0]['schema']);
+
+        $query = $paths['/argbinding/enum']['get']['parameters'];
+        $this->assertSame(['status', 'priority'], array_column($query, 'name'));
+        $this->assertSame([true, false], array_column($query, 'required'));
     }
 
     public function testInfoDefaultsToOpenApiOptionsDefaultsWhenUnconfigured(): void
