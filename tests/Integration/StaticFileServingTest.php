@@ -75,6 +75,21 @@ final class StaticFileServingTest extends IntegrationTestCase
         );
     }
 
+    public function testALargeFileIsStreamedWholeAndUncompressed(): void
+    {
+        $large = $this->publicDir . '/large.txt';
+        file_put_contents($large, str_repeat('a', 1024 * 1024 + 7));
+        try {
+            $output = $this->dispatch('GET', '/large.txt', ['Accept-Encoding' => 'gzip']);
+
+            $this->assertSame(1024 * 1024 + 7, strlen($output));
+            $this->assertSame((string) (1024 * 1024 + 7), $this->sentHeaders()['content-length'] ?? null);
+            $this->assertArrayNotHasKey('content-encoding', $this->sentHeaders());
+        } finally {
+            unlink($large);
+        }
+    }
+
     public function testFallsThroughToRoutingWhenFileDoesNotExist(): void
     {
         $output = $this->dispatch('GET', '/does-not-exist.css');

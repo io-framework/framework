@@ -76,6 +76,23 @@ final class ResponseTest extends TestCase
         $this->assertSame($res, $res->write('body'));
     }
 
+    public function testAFileBodyIsSentFromDiskWithItsSize(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'io-file-');
+        file_put_contents($path, 'streamed');
+        try {
+            $res = (new Response())->file($path);
+            ob_start();
+            $res->send();
+            $sent = (string) ob_get_clean();
+
+            $this->assertSame('streamed', $sent);
+            $this->assertSame('8', $res->getHeaders()['Content-Length'] ?? null);
+        } finally {
+            unlink($path);
+        }
+    }
+
     public function testWriteAppendsAcrossCalls(): void
     {
         $res = (new Response())->write('Hello, ')->write('World!');

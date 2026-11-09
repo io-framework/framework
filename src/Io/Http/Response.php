@@ -21,6 +21,9 @@ class Response
 
     private string $body = '';
 
+    /** A file sent as the body, read only while it goes out (file()); null: the body written */
+    private ?string $file = null;
+
     /** @var string[] One raw Set-Cookie value each; kept apart from $headers so several cookies can stack. */
     private array $cookies = [];
 
@@ -221,6 +224,17 @@ class Response
         return $this->context;
     }
 
+    /**
+     * Sends the file at $path as the body, read in pieces while it goes out instead of held in memory: for
+     * files of any size. Not compressed; Content-Length is the file's size.
+     */
+    public function file(string $path): self
+    {
+        $this->file = $path;
+        $this->body = '';
+        return $this;
+    }
+
     /** Appends $data to the body. */
     public function write(string $data): self
     {
@@ -239,7 +253,8 @@ class Response
         if ($this->finalized) {
             throw new \LogicException('mapBody() after finalize(): Content-Length and compression are already fixed');
         }
-        $this->body = $map($this->body);
+        $this->body = $map($this->file !== null ? (string) file_get_contents($this->file) : $this->body);
+        $this->file = null;
         return $this;
     }
 
@@ -267,11 +282,22 @@ class Response
         // No content and no Content-Length: a body here would be read as the start of the next response
         if (in_array($this->getStatus(), [204, 304], true)) {
             $this->body = '';
+            $this->file = null;
             foreach (array_keys($this->headers) as $name) {
                 if (strcasecmp($name, 'Content-Length') === 0 || strcasecmp($name, 'Content-Type') === 0) {
                     unset($this->headers[$name]);
                 }
             }
+            return $this;
+        }
+        if ($this->file !== null) {
+            // Sent as it is: compressing would mean reading it whole
+            foreach (array_keys($this->headers) as $name) {
+                if (strcasecmp($name, 'Content-Length') === 0) {
+                    unset($this->headers[$name]);
+                }
+            }
+            $this->headers['Content-Length'] = (string) (int) @filesize($this->file);
             return $this;
         }
         $acceptEncoding = $this->request !== null ? ($this->request->headers['Accept-Encoding'] ?? '') : ($_SERVER['HTTP_ACCEPT_ENCODING'] ?? '');
@@ -289,8 +315,17 @@ class Response
     /** The body as it goes out: compressed after finalize(), '' for a HEAD request (whose Content-Length is the GET's). */
     public function getBody(): string
     {
+        if ($this->isHead()) {
+            return '';
+        }
+        // For a caller that wants the body as text (a test, a bridge); send() streams the file instead
+        return $this->file !== null ? (string) @file_get_contents($this->file) : $this->body;
+    }
+
+    private function isHead(): bool
+    {
         $method = $this->request !== null ? $this->request->method : ($_SERVER['REQUEST_METHOD'] ?? '');
-        return $method === 'HEAD' ? '' : $this->body;
+        return $method === 'HEAD';
     }
 
     /** @return array<string, string> Every header but Set-Cookie (see getCookies()). */
@@ -322,6 +357,10 @@ class Response
             foreach ($this->cookies as $cookie) {
                 header('Set-Cookie: ' . $cookie, false);
             }
+        }
+        if ($this->file !== null && !$this->isHead()) {
+            readfile($this->file);
+            return;
         }
         echo $this->getBody();
     }

@@ -21,6 +21,9 @@ final class PublicFileServer
         'html' => 'text/html; charset=utf-8',
     ];
 
+    /** From this size on a file is streamed from disk instead of read into memory first (and not compressed). */
+    private const STREAM_FROM_BYTES = 1024 * 1024;
+
     /** Extensions PHP may execute: their source is never handed out, wherever they lie. */
     private const SOURCE_EXTENSION = '/^(php\d*|phtml|phar|phps|pht)$/i';
 
@@ -53,6 +56,13 @@ final class PublicFileServer
                 return true;
             }
         }
+        $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        $type = self::MIME_MAP[$ext] ?? (mime_content_type($file) ?: 'application/octet-stream');
+        if ((int) filesize($file) >= self::STREAM_FROM_BYTES) {
+            // A video or a backup: read in pieces while it goes out, never whole into memory
+            $res->withHeader('Content-Type', $type)->file($file);
+            return true;
+        }
         $content = @file_get_contents($file);
         if ($content === false) {
             // @codeCoverageIgnoreStart
@@ -60,8 +70,7 @@ final class PublicFileServer
             return false;
             // @codeCoverageIgnoreEnd
         }
-        $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-        $res->withHeader('Content-Type', self::MIME_MAP[$ext] ?? (mime_content_type($file) ?: 'application/octet-stream'))
+        $res->withHeader('Content-Type', $type)
             ->withHeader('Content-Length', (string) strlen($content))
             ->write($content);
         return true;
