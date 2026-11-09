@@ -91,7 +91,8 @@ final class RouteCompiler
             $httpMethod = strtoupper($routeAttr->getHttpMethod());
             $unversionedPath = '/' . trim(rtrim($prefixPath, '/') . '/' . ltrim($routeAttr->getPath(), '/'), '/');
             $version = self::inherited($rc, $method, Version::class)?->value;
-            $path = $version !== null ? "/$version$unversionedPath" : $unversionedPath;
+            // Trimmed like the request's path: the version's root is /v1, never /v1/
+            $path = $version !== null ? '/' . trim("$version$unversionedPath", '/') : $unversionedPath;
             if ($version === null) {
                 $this->warn(Message::RouteUnversioned, method: $httpMethod, path: $path);
             }

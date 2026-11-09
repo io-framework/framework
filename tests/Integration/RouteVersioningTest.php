@@ -12,6 +12,7 @@ use Io\Tests\Fixtures\Controllers\{
     UsersV1Controller,
     UsersV2Controller,
     UsersV10Controller,
+    VersionedRootController,
     DeprecatedRoutesController,
     DeprecatedClassController,
     InvalidSunsetController
@@ -53,6 +54,16 @@ final class RouteVersioningTest extends IntegrationTestCase
         $this->assertSame('/widgets/list', $routes['GET']['/v1/widgets/list']['unversionedPath']);
         // The unprefixed path must not also exist as its own route.
         $this->assertArrayNotHasKey('/widgets/list', $routes['GET']);
+    }
+
+    public function testAVersionedRouteAtTheRootHasNoTrailingSlash(): void
+    {
+        // Requests arrive without the trailing slash: /v1/ would never match
+        $routes = $this->attachAndGetRoutes([VersionedRootController::class]);
+
+        $this->assertArrayHasKey('/v1', $routes['GET']);
+        $this->assertArrayNotHasKey('/v1/', $routes['GET']);
+        $this->assertSame('/', $routes['GET']['/v1']['unversionedPath']);
     }
 
     public function testMethodLevelVersionOverridesTheClassLevelVersion(): void
