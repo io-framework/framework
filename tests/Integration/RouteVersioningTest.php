@@ -13,6 +13,7 @@ use Io\Tests\Fixtures\Controllers\{
     UsersV2Controller,
     UsersV10Controller,
     VersionedRootController,
+    SearchController,
     DeprecatedRoutesController,
     DeprecatedClassController,
     InvalidSunsetController
@@ -64,6 +65,15 @@ final class RouteVersioningTest extends IntegrationTestCase
         $this->assertArrayHasKey('/v1', $routes['GET']);
         $this->assertArrayNotHasKey('/v1/', $routes['GET']);
         $this->assertSame('/', $routes['GET']['/v1']['unversionedPath']);
+    }
+
+    public function testEveryRouteAttributeOfAMethodIsARoute(): void
+    {
+        App::create()->attach([SearchController::class]);
+        $routes = App::create()->getRouter()->staticRoutes;
+
+        $this->assertSame('search', $routes['GET']['/v1/search']['method']);
+        $this->assertSame('search', $routes['POST']['/v1/search']['method']);
     }
 
     public function testMethodLevelVersionOverridesTheClassLevelVersion(): void

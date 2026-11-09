@@ -83,66 +83,85 @@ final class RouteCompiler
         }
 
         foreach ($rc->getMethods() as $method) {
-            $routeAttr = self::lastAttribute($method, RouteAttribute::class, ReflectionAttribute::IS_INSTANCEOF);
-            if ($routeAttr === null) {
-                continue;
+            // Each route attribute is a route of its own: #[Get('/search')] #[Post('/search')]
+            foreach ($method->getAttributes(RouteAttribute::class, ReflectionAttribute::IS_INSTANCEOF) as $attribute) {
+                $this->compileRoute($rc, $method, $attribute->newInstance(), $controller, $prefixPath, $propInject, $classMiddlewares, $staticRoutes, $dynamicRoutes);
             }
+        }
+    }
 
-            $httpMethod = strtoupper($routeAttr->getHttpMethod());
-            $unversionedPath = '/' . trim(rtrim($prefixPath, '/') . '/' . ltrim($routeAttr->getPath(), '/'), '/');
-            $version = self::inherited($rc, $method, Version::class)?->value;
-            // Trimmed like the request's path: the version's root is /v1, never /v1/
-            $path = $version !== null ? '/' . trim("$version$unversionedPath", '/') : $unversionedPath;
-            if ($version === null) {
-                $this->warn(Message::RouteUnversioned, method: $httpMethod, path: $path);
-            }
+    /**
+     * @param ReflectionClass<object> $rc
+     * @param array<int, PropInjectEntry> $propInject
+     * @param array<int, MiddlewareEntry> $classMiddlewares
+     * @param array<string, array<string, RoutePlan>> $staticRoutes
+     * @param array<string, array<int, RoutePlan>> $dynamicRoutes
+     */
+    private function compileRoute(
+        ReflectionClass $rc,
+        ReflectionMethod $method,
+        RouteAttribute $routeAttr,
+        string $controller,
+        string $prefixPath,
+        array $propInject,
+        array $classMiddlewares,
+        array &$staticRoutes,
+        array &$dynamicRoutes,
+    ): void {
+        $httpMethod = strtoupper($routeAttr->getHttpMethod());
+        $unversionedPath = '/' . trim(rtrim($prefixPath, '/') . '/' . ltrim($routeAttr->getPath(), '/'), '/');
+        $version = self::inherited($rc, $method, Version::class)?->value;
+        // Trimmed like the request's path: the version's root is /v1, never /v1/
+        $path = $version !== null ? '/' . trim("$version$unversionedPath", '/') : $unversionedPath;
+        if ($version === null) {
+            $this->warn(Message::RouteUnversioned, method: $httpMethod, path: $path);
+        }
 
-            $dynamic = str_contains($path, '{');
-            $access = self::access($rc, $method);
-            $sunsetDate = self::inherited($rc, $method, Sunset::class)?->date;
-            $layout = self::inherited($rc, $method, Layout::class);
+        $dynamic = str_contains($path, '{');
+        $access = self::access($rc, $method);
+        $sunsetDate = self::inherited($rc, $method, Sunset::class)?->date;
+        $layout = self::inherited($rc, $method, Layout::class);
 
-            $plan = [
-                'httpMethod' => $httpMethod,
-                'path' => $path,
-                'regex' => $dynamic ? self::pathRegex($path) : null,
-                'controller' => $controller,
-                'method' => $method->getName(),
-                'argPlan' => self::checkedArgPlan($method, $this->buildArgPlan($method)),
-                'propInject' => $propInject,
-                'formatter' => self::normalizeFormatter(self::findFormatter($method)),
-                // A void action builds the response itself: its null is no JSON body
-                'void' => in_array((string) $method->getReturnType(), ['void', 'never'], true),
-                'middlewares' => [...$classMiddlewares, ...$this->collectMiddlewares($method->getAttributes(Middleware::class), "{$controller}::{$method->getName()}()")],
-                'gzip' => !self::hasEither($rc, $method, NoGzip::class),
-                'skipCsrf' => self::hasEither($rc, $method, SkipCsrf::class),
-                'version' => $version,
-                'unversionedPath' => $unversionedPath,
-                // PHP's native #[\Deprecated]; presence at either level is the whole signal.
-                'deprecated' => self::hasEither($rc, $method, Deprecated::class),
-                'sunsetHeader' => $sunsetDate !== null ? $this->formatSunsetHeader($sunsetDate, $httpMethod, $path) : null,
-                // #[Layout]: false when none is set, null for #[Layout(null)], else the file
-                'layout' => $layout === null ? false : $layout->file,
-                'authenticated' => $access['authenticated'] || self::requiresClaims($method),
-                'role' => $access['role'],
-                'permissions' => $access['permissions'],
-                'throws' => [],
-                'plugins' => $this->compilePluginData($rc, $method),
-            ];
+        $plan = [
+            'httpMethod' => $httpMethod,
+            'path' => $path,
+            'regex' => $dynamic ? self::pathRegex($path) : null,
+            'controller' => $controller,
+            'method' => $method->getName(),
+            'argPlan' => self::checkedArgPlan($method, $this->buildArgPlan($method)),
+            'propInject' => $propInject,
+            'formatter' => self::normalizeFormatter(self::findFormatter($method)),
+            // A void action builds the response itself: its null is no JSON body
+            'void' => in_array((string) $method->getReturnType(), ['void', 'never'], true),
+            'middlewares' => [...$classMiddlewares, ...$this->collectMiddlewares($method->getAttributes(Middleware::class), "{$controller}::{$method->getName()}()")],
+            'gzip' => !self::hasEither($rc, $method, NoGzip::class),
+            'skipCsrf' => self::hasEither($rc, $method, SkipCsrf::class),
+            'version' => $version,
+            'unversionedPath' => $unversionedPath,
+            // PHP's native #[\Deprecated]; presence at either level is the whole signal.
+            'deprecated' => self::hasEither($rc, $method, Deprecated::class),
+            'sunsetHeader' => $sunsetDate !== null ? $this->formatSunsetHeader($sunsetDate, $httpMethod, $path) : null,
+            // #[Layout]: false when none is set, null for #[Layout(null)], else the file
+            'layout' => $layout === null ? false : $layout->file,
+            'authenticated' => $access['authenticated'] || self::requiresClaims($method),
+            'role' => $access['role'],
+            'permissions' => $access['permissions'],
+            'throws' => [],
+            'plugins' => $this->compilePluginData($rc, $method),
+        ];
 
-            // Same method and path (or the same pattern): one of the two would never be reached
-            $existing = $dynamic
-                ? array_find($dynamicRoutes[$httpMethod] ?? [], fn (array $other): bool => $other['regex'] === $plan['regex'])
-                : $staticRoutes[$httpMethod][$path] ?? null;
-            if ($existing !== null) {
-                $other = is_string($existing['controller']) ? $existing['controller'] : $existing['controller']::class;
-                throw new InvalidArgumentException("Duplicate route {$httpMethod} {$path}: {$other}::{$existing['method']}() and {$controller}::{$method->getName()}().");
-            }
-            if ($dynamic) {
-                $dynamicRoutes[$httpMethod][] = $plan;
-            } else {
-                $staticRoutes[$httpMethod][$path] = $plan;
-            }
+        // Same method and path (or the same pattern): one of the two would never be reached
+        $existing = $dynamic
+            ? array_find($dynamicRoutes[$httpMethod] ?? [], fn (array $other): bool => $other['regex'] === $plan['regex'])
+            : $staticRoutes[$httpMethod][$path] ?? null;
+        if ($existing !== null) {
+            $other = is_string($existing['controller']) ? $existing['controller'] : $existing['controller']::class;
+            throw new InvalidArgumentException("Duplicate route {$httpMethod} {$path}: {$other}::{$existing['method']}() and {$controller}::{$method->getName()}().");
+        }
+        if ($dynamic) {
+            $dynamicRoutes[$httpMethod][] = $plan;
+        } else {
+            $staticRoutes[$httpMethod][$path] = $plan;
         }
     }
 
@@ -200,18 +219,6 @@ final class RouteCompiler
     {
         $attrs = $target->getAttributes($attribute, $flags);
         return $attrs === [] ? null : $attrs[0]->newInstance();
-    }
-
-    /**
-     * Like attribute(), but the last declared one wins.
-     * @template T of object
-     * @param class-string<T> $attribute
-     * @return T|null
-     */
-    private static function lastAttribute(ReflectionMethod $target, string $attribute, int $flags = 0): ?object
-    {
-        $attrs = $target->getAttributes($attribute, $flags);
-        return $attrs === [] ? null : $attrs[array_key_last($attrs)]->newInstance();
     }
 
     /**
