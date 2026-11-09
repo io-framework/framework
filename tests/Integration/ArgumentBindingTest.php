@@ -166,6 +166,17 @@ final class ArgumentBindingTest extends IntegrationTestCase
         $this->assertArrayNotHasKey('0', $decoded['errors']);
     }
 
+    public function testCollectionErrorsAreAJsonObjectWhenEveryItemFails(): void
+    {
+        $output = $this->dispatch('POST', '/documented/bulk-products', [], [
+            ['name' => '', 'sku' => 'AB12'],
+            ['name' => '', 'sku' => 'CD34'],
+        ]);
+
+        // The same shape as when only item 1 fails: {"0": …, "1": …}, never [ … ]
+        $this->assertStringContainsString('"errors":{"0":', $output);
+    }
+
     /** @return array<string, array{mixed, string}> */
     public static function malformedCollections(): array
     {

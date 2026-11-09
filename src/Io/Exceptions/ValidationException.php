@@ -43,6 +43,9 @@ class ValidationException extends HttpException
     #[\Override]
     public function toProblemDetails(): array
     {
-        return [...parent::toProblemDetails(), 'errors' => $this->errors];
+        // Always a JSON object: a collection's errors keyed 0, 1, … would otherwise turn into a JSON array
+        // when every item failed, and into an object when only some did
+        $errors = $this->errors !== [] && array_is_list($this->errors) ? (object) $this->errors : $this->errors;
+        return [...parent::toProblemDetails(), 'errors' => $errors];
     }
 }
