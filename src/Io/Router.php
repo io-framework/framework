@@ -309,7 +309,10 @@ class Router
         $this->ioJsFile = is_string($ioJsFile) ? $ioJsFile : null;
         $this->pluginAssetFiles = Arr::stringList($data['pluginAssetFiles'] ?? null);
         $this->viewAssetsByName = [];
-        foreach (Arr::stringKeyed($data['viewAssetsByName'] ?? null) as $name => $entry) {
+        // A view named 404 comes back with the int key 404: every key counts, as text
+        $byName = $data['viewAssetsByName'] ?? null;
+        foreach (is_array($byName) ? $byName : [] as $name => $entry) {
+            $name = (string) $name;
             $entry = Arr::stringKeyed($entry);
             $css = $entry['css'] ?? null;
             $js = $entry['js'] ?? null;

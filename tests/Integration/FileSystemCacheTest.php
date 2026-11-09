@@ -553,4 +553,13 @@ final class FileSystemCacheTest extends IntegrationTestCase
 
         $this->assertNull($fileSystem->readViewAssetFile('never-stored.css'));
     }
+
+    public function testTheAssetsOfAViewWithANumericNameSurviveTheCache(): void
+    {
+        $router = $this->router([CustomersController::class], [], new FileSystemOptions());
+        // As a required cache file gives it back: PHP made the key "404" the int 404
+        $router->importPlans(['viewAssetsByName' => [404 => ['css' => 'view-404.css', 'js' => null]]]);
+
+        $this->assertSame('view-404.css', $router->exportPlans()['viewAssetsByName']['404']['css']);
+    }
 }
