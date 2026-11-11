@@ -479,4 +479,23 @@ final class CsrfTest extends TestCase
             @rmdir($dir);
         }
     }
+
+    public function testKeepSecretInReplacesAnEmptyFileAndLeavesNoDraft(): void
+    {
+        $dir = sys_get_temp_dir() . '/io-csrf-' . bin2hex(random_bytes(4));
+        $file = "$dir/csrf-secret";
+        mkdir($dir);
+        touch($file);
+        try {
+            $opts = new CsrfOptions();
+            $opts->keepSecretIn($file);
+
+            $this->assertSame(64, strlen($opts->secret));
+            $this->assertSame($opts->secret, file_get_contents($file));
+            $this->assertSame(['csrf-secret'], array_values(array_diff(scandir($dir), ['.', '..'])));
+        } finally {
+            @unlink($file);
+            @rmdir($dir);
+        }
+    }
 }

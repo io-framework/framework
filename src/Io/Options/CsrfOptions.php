@@ -44,13 +44,25 @@ class CsrfOptions
         }
         $secret = is_file($file) ? trim((string) file_get_contents($file)) : '';
         if ($secret === '') {
-            $secret = bin2hex(random_bytes(32));
             if (!is_dir(dirname($file)) && !mkdir(dirname($file), 0700, true) && !is_dir(dirname($file))) {
                 throw new RuntimeException("CSRF secret: cannot create the directory of $file");
             }
-            if (file_put_contents($file, $secret) === false || !chmod($file, 0600)) {
+            // Written aside and owner-only first, then linked into place: link() fails when the file
+            // exists, so of several workers starting at once the first secret wins and all read it.
+            // An empty file left by an older start is replaced.
+            $draft = $file . '.' . bin2hex(random_bytes(6)) . '.tmp';
+            if (file_put_contents($draft, bin2hex(random_bytes(32))) === false || !chmod($draft, 0600)) {
+                @unlink($draft);
                 throw new RuntimeException("CSRF secret: cannot write $file");
             }
+            if (!@link($draft, $file) && trim((string) @file_get_contents($file)) === '') {
+                rename($draft, $file);
+            }
+            @unlink($draft);
+            $secret = trim((string) file_get_contents($file));
+        }
+        if ($secret === '') {
+            throw new RuntimeException("CSRF secret: cannot write $file");
         }
         $this->secret = $secret;
     }
