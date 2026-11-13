@@ -455,8 +455,14 @@ class View
             if (!is_dir($directory)) {
                 @mkdir($directory, 0775, true);
             }
+            $code = self::compile((string) file_get_contents($file), $file);
+            // Under tenma --watch a file the script loads and writes itself would reload the workers; the
+            // function tells a Tenma that knows Watch::writing() from an older one and plain PHP
+            if (function_exists('tenma_watch_writing')) {
+                \Development\Watch::writing($compiled, $code);
+            }
             $temporary = $compiled . '.' . bin2hex(random_bytes(6)) . '.tmp';
-            if (file_put_contents($temporary, self::compile((string) file_get_contents($file), $file)) === false || !rename($temporary, $compiled)) {
+            if (file_put_contents($temporary, $code) === false || !rename($temporary, $compiled)) {
                 // @codeCoverageIgnoreStart
                 @unlink($temporary);
                 throw new RuntimeException("Cannot write the compiled view {$compiled}.");
