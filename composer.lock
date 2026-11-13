@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "3e20f624959f551dd6b66d1d053dc51a",
+    "content-hash": "b5df7eba758843f9b6f554773d9a1141",
     "packages": [
         {
             "name": "psr/container",
@@ -2436,16 +2436,16 @@
         },
         {
             "name": "tenma/stubs",
-            "version": "0.2.2",
+            "version": "0.2.27",
             "source": {
                 "type": "git",
                 "url": "https://github.com/tenma-runtime/stubs.git",
-                "reference": "6d7e583880340af3100dbbe30b7509fa122cab51"
+                "reference": "fe4172a1d0a9383daf44e80368e642ca177e2db3"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/tenma-runtime/stubs/zipball/6d7e583880340af3100dbbe30b7509fa122cab51",
-                "reference": "6d7e583880340af3100dbbe30b7509fa122cab51",
+                "url": "https://api.github.com/repos/tenma-runtime/stubs/zipball/fe4172a1d0a9383daf44e80368e642ca177e2db3",
+                "reference": "fe4172a1d0a9383daf44e80368e642ca177e2db3",
                 "shasum": ""
             },
             "require": {
@@ -2481,10 +2481,10 @@
                 "tenma"
             ],
             "support": {
-                "issues": "https://github.com/systonia/Tenma-Stubs/issues",
-                "source": "https://github.com/systonia/Tenma-Stubs"
+                "issues": "https://github.com/tenma-runtime/stubs/issues",
+                "source": "https://github.com/tenma-runtime/stubs"
             },
-            "time": "2026-10-23T18:44:08+00:00"
+            "time": "2026-11-13T16:11:52+00:00"
         },
         {
             "name": "theseer/tokenizer",

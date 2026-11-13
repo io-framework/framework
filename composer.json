@@ -57,7 +57,7 @@
     "phpstan/phpstan": "^2.2",
     "phpunit/phpunit": "^13.3",
     "tenma/psr": "^0.1.3",
-    "tenma/stubs": "^0.2.0"
+    "tenma/stubs": "^0.2.27"
   },
   "suggest": {
     "monolog/monolog": "Powerful logging with handlers, channels, and JSON output.",
