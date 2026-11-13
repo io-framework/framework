@@ -79,7 +79,7 @@ class View
     /** @var list<string> URLs of plugin CSS/JS (Plugin\ClientAsset), set by Router::renderView(). */
     protected array $pluginAssetUrls = [];
 
-    /** @var array<string, array{int, string}> template path => its mtime and compiled code, without a cache directory */
+    /** @var array<string, array{string, string}> template path => its version (see version()) and compiled code, without a cache directory */
     private static array $compiled = [];
 
     /** @var WeakMap<Throwable, array{string, int}>|null The view and line an error came from */
@@ -432,23 +432,24 @@ class View
 
     /**
      * The compiled template: [its file in the cache directory, null], or [null, its code] without a cache directory.
-     * Rebuilt when the template's modification time changes (to any other, older too), or Io (this file) does.
+     * Rebuilt when the template's version changes (its modification time, to any other, older too), or Io (this
+     * file) does.
      * @return array{0: ?string, 1: string}
      */
     private static function compiled(string $file): array
     {
-        $modified = (int) filemtime($file);
+        $version = self::version($file);
         $fileSystem = App::getInstance()?->getContainer()->get(FileSystemOptions::class);
         if ($fileSystem === null || !$fileSystem->isCacheEnabled()) {
-            if ((self::$compiled[$file][0] ?? null) !== $modified) {
-                self::$compiled[$file] = [$modified, self::compile((string) file_get_contents($file), $file)];
+            if ((self::$compiled[$file][0] ?? null) !== $version) {
+                self::$compiled[$file] = [$version, self::compile((string) file_get_contents($file), $file)];
             }
             return [null, self::$compiled[$file][1]];
         }
         $directory = $fileSystem->getCacheDirectory() . '/views';
-        // The template's own modification time is part of the name: a deploy that brings a template with an
+        // The template's own version is part of the name: a deploy that brings a template with an
         // older time than the compiled copy (rsync -a, tar, an image layer) still gets it compiled again
-        $key = $file . '|' . $modified . '|' . filemtime(__FILE__) . '|' . filemtime(self::compilerFile());
+        $key = $file . '|' . $version . '|' . filemtime(__FILE__) . '|' . filemtime(self::compilerFile());
         $compiled = $directory . '/' . md5($key) . '.php';
         if (!is_file($compiled)) {
             if (!is_dir($directory)) {
@@ -463,6 +464,19 @@ class View
             }
         }
         return [$compiled, ''];
+    }
+
+    /**
+     * The template's modification time, which PHP knows to the second only: while that second is this one or the
+     * last, the content's hash too, so a second save within it is no stale view.
+     */
+    private static function version(string $file): string
+    {
+        $modified = (int) filemtime($file);
+        if (time() - $modified > 1) {
+            return (string) $modified;
+        }
+        return $modified . '-' . md5_file($file);
     }
 
     private static function compilerFile(): string

@@ -161,6 +161,28 @@ final class ViewTest extends TestCase
         exec('rm -rf ' . escapeshellarg($root));
     }
 
+    public function testASecondSaveWithinTheSameSecondIsCompiledAgain(): void
+    {
+        $root = sys_get_temp_dir() . '/io-second-' . bin2hex(random_bytes(4));
+        mkdir("$root/views", 0777, true);
+        $template = "$root/views/Page.php";
+        $now = time();
+        file_put_contents($template, 'one');
+        touch($template, $now);
+        $app = App::create();
+        $app->configure(fn (RendererOptions $opts) => $opts->directory = "$root/views");
+        $app->configure(fn (FileSystemOptions $fs) => $fs->cacheDirectory = "$root/cache");
+        $this->assertSame('one', (new View('Page', partial: true))->render());
+
+        // Same length, same second: only the content tells them apart
+        file_put_contents($template, 'two');
+        touch($template, $now);
+        clearstatcache();
+
+        $this->assertSame('two', (new View('Page', partial: true))->render());
+        exec('rm -rf ' . escapeshellarg($root));
+    }
+
     public function testFullRenderWrapsContentInLayoutAndFillsSections(): void
     {
         $this->configureRenderer('_Layout.php');
