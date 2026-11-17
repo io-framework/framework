@@ -90,7 +90,7 @@ class View
      *  A leading '/', a backslash or a '..' segment is rejected: the name is often built from request input.
      * @param string|null $layout Overrides RendererOptions::$layout for this render.
      * @param string|null $directory Overrides RendererOptions::$directory for view and layout, e.g. a plugin's own
-     *  views. Such a view gets no compiled CSS/JS of its own.
+     *  views; without the layout there, the app's frames it. Such a view gets no compiled CSS/JS of its own.
      */
     public function __construct(string $view, mixed $model = null, bool $partial = false, ?string $layout = null, ?string $directory = null)
     {
@@ -348,7 +348,12 @@ class View
 
         $content = $this->renderFile($viewFile, $this->model);
 
-        $layoutFile = "{$directory}/" . ($this->layout ?? $options->layout);
+        // A plugin's view without a layout of its own sits in the app's frame
+        $layout = $this->layout ?? $options->layout;
+        $layoutFile = "{$directory}/{$layout}";
+        if ($this->directory !== null && !file_exists($layoutFile)) {
+            $layoutFile = "{$options->directory}/{$layout}";
+        }
         if ($this->partial || $this->withoutLayout || !file_exists($layoutFile)) {
             return $content;
         }
@@ -356,7 +361,7 @@ class View
         $this->layoutName = basename($layoutFile, '.php');
         // A View rendered outside a Router (unit tests) simply has no layout assets.
         $app = App::getInstance();
-        if ($app !== null && $app->hasRouter() && $this->directory === null) {
+        if ($app !== null && $app->hasRouter() && dirname($layoutFile) === $options->directory) {
             $this->layoutAssets = $app->getRouter()->getViewAssets($this->layoutName);
         }
 

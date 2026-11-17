@@ -73,6 +73,14 @@ final class ViewTest extends TestCase
         $this->assertSame("<main><p>plugin x</p>\n</main>\n", $view->render());
     }
 
+    public function testAViewFromADirectoryWithoutTheLayoutSitsInTheAppsLayout(): void
+    {
+        $this->configureRenderer('AltLayout.php');
+        $view = new View('Page', 'x', directory: __DIR__ . '/../../Fixtures/PluginViews');
+
+        $this->assertSame("<!doctype html>\n<html><body class=\"alt-layout\"><p>plugin x</p>\n</body></html>\n", $view->render());
+    }
+
     public function testRenderThrowsWhenViewFileMissing(): void
     {
         $this->configureRenderer();
